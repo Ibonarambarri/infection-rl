@@ -1,0 +1,47 @@
+# =============================================================================
+# Proyecto Final de Reinforcement Learning: Entorno Multi-Agente de Infección
+# =============================================================================
+
+# Core RL Libraries
+gymnasium>=0.29.1
+minigrid>=2.3.1
+stable-baselines3>=2.2.1
+
+# Deep Learning Backend (PyTorch)
+torch>=2.1.0
+torchvision>=0.16.0
+
+# Visualization and Monitoring
+tensorboard>=2.15.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# Video and Image Processing
+imageio>=2.33.0
+imageio-ffmpeg>=0.4.9
+pygame>=2.5.0
+
+# Numerical and Scientific Computing
+numpy>=1.26.0
+scipy>=1.11.0
+pandas>=2.1.0
+
+# Progress and Utilities
+tqdm>=4.66.0
+rich>=13.7.0
+
+# Hyperparameter Optimization
+optuna>=3.5.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Development Tools
+ipython>=8.18.0
+jupyter>=1.0.0
+black>=23.12.0
+flake8>=6.1.0
+
+# Type Hints
+typing-extensions>=4.9.0
