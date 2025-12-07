@@ -18,7 +18,7 @@ from ..agents import BaseAgent, HealthyAgent, InfectedAgent, AgentCollection, Di
 from .map_generator import MapGenerator, MapConfig, CellType
 
 # Mapa por defecto (hardcodeado)
-DEFAULT_MAP_FILE = "maps/ciudad_60x60.txt"
+DEFAULT_MAP_FILE = "maps/vacio_60x60.txt"
 
 
 @dataclass
@@ -246,6 +246,58 @@ class InfectionEnv(gym.Env):
         info = self._get_info()
 
         return obs, reward, terminated, truncated, info
+
+    def step_all(self, actions: Dict[int, int]) -> Tuple[Dict[int, Dict], Dict[int, float], bool, bool, Dict[str, Any]]:
+        """
+        Ejecuta un paso para todos los agentes (multi-agent).
+
+        Args:
+            actions: Diccionario {agent_id: action}
+
+        Returns:
+            (observations, rewards, terminated, truncated, info)
+        """
+        if self.done:
+            obs = {a.id: self._get_observation(a) for a in self.agents}
+            rewards = {a.id: 0.0 for a in self.agents}
+            return obs, rewards, True, False, self._get_info()
+
+        self.current_step += 1
+        old_positions = {a.id: a.position for a in self.agents}
+
+        # Ejecutar todas las acciones
+        for agent_id, action in actions.items():
+            agent = self.agents.get(agent_id)
+            if agent:
+                self._execute_action(agent, action)
+
+        # Actualizar contadores
+        for agent in self.agents:
+            if agent.position == old_positions.get(agent.id):
+                self._steps_in_same_cell[agent.id] = self._steps_in_same_cell.get(agent.id, 0) + 1
+            else:
+                self._steps_in_same_cell[agent.id] = 0
+
+        self._last_positions = old_positions
+
+        # Detectar infecciones
+        new_infections = self._check_infections()
+
+        # Calcular recompensas
+        rewards = {}
+        for agent in self.agents:
+            rewards[agent.id] = self._calculate_reward(agent, new_infections, agent.id)
+            agent.step()
+
+        # Verificar terminación
+        terminated = self._check_termination()
+        truncated = self.current_step >= self.config.max_steps
+        self.done = terminated or truncated
+
+        obs = {a.id: self._get_observation(a) for a in self.agents}
+        info = self._get_info()
+
+        return obs, rewards, terminated, truncated, info
 
     def _execute_action(self, agent: BaseAgent, action: int) -> None:
         """Ejecuta una acción para un agente."""

@@ -4,7 +4,13 @@ Infection Environment
 
 from .environment import InfectionEnv, EnvConfig
 from .map_generator import MapGenerator, CellType
-from .wrappers import make_infection_env
+from .wrappers import (
+    make_infection_env,
+    make_vec_env_parameter_sharing,
+    SingleAgentWrapper,
+    FlattenObservationWrapper,
+    MultiAgentToSingleAgentWrapper,
+)
 
 __all__ = [
     "InfectionEnv",
@@ -12,4 +18,8 @@ __all__ = [
     "MapGenerator",
     "CellType",
     "make_infection_env",
+    "make_vec_env_parameter_sharing",
+    "SingleAgentWrapper",
+    "FlattenObservationWrapper",
+    "MultiAgentToSingleAgentWrapper",
 ]
