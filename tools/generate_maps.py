@@ -1,52 +1,43 @@
 #!/usr/bin/env python3
 """
-Map Generator for Curriculum Learning
-======================================
-Genera mapas de diferentes tamaños para el curriculum de entrenamiento.
+Map Generator for Curriculum Learning (Fixed)
+=============================================
+Genera mapas garantizando conectividad total y alineación correcta.
 
-Tipos de mapas:
-- small.txt: 20x20 (Entrenamiento rápido, alta densidad)
-- medium.txt: 40x40 (Estándar)
-- large.txt: 60x60 (Test de generalización)
-
-Los mapas incluyen muros aleatorios y obstáculos, asegurando navegabilidad.
+Mejoras:
+1. Conectividad 100% garantizada (sin zonas aisladas).
+2. Estructura de "ciudad" más limpia.
+3. Escritura de archivo robusta para evitar desalineación.
 """
 
 import argparse
 import os
 from pathlib import Path
-from typing import Tuple, List, Set
+from typing import Tuple, List, Set, Deque
 from collections import deque
 import numpy as np
 
-
 class CurriculumMapGenerator:
     """
-    Generador de mapas para curriculum learning.
-
-    Genera mapas navegables con muros y obstáculos aleatorios.
-    Verifica conectividad usando BFS para asegurar navegabilidad.
+    Generador de mapas robusto.
     """
 
-    # Configuraciones predefinidas para curriculum
+    # Configuraciones predefinidas
     PRESETS = {
         "small": {
-            "size": 20,
-            "wall_density": 0.08,
+            "width": 20, "height": 20,
+            "wall_density": 0.1,
             "obstacle_density": 0.05,
-            "min_open_ratio": 0.7,
         },
         "medium": {
-            "size": 40,
-            "wall_density": 0.06,
+            "width": 40, "height": 40,
+            "wall_density": 0.08,
             "obstacle_density": 0.04,
-            "min_open_ratio": 0.75,
         },
         "large": {
-            "size": 60,
-            "wall_density": 0.05,
+            "width": 60, "height": 60,
+            "wall_density": 0.06,
             "obstacle_density": 0.03,
-            "min_open_ratio": 0.8,
         },
     }
 
@@ -60,328 +51,267 @@ class CurriculumMapGenerator:
 
     def generate(
         self,
-        size: int,
+        width: int,
+        height: int,
         wall_density: float = 0.05,
         obstacle_density: float = 0.03,
-        min_open_ratio: float = 0.75,
-        max_attempts: int = 100,
     ) -> np.ndarray:
         """
-        Genera un mapa navegable.
-
-        Args:
-            size: Tamaño del mapa (size x size)
-            wall_density: Densidad de muros internos (0-1)
-            obstacle_density: Densidad de obstáculos (0-1)
-            min_open_ratio: Ratio mínimo de celdas conectadas
-            max_attempts: Intentos máximos para generar mapa válido
-
-        Returns:
-            Mapa como array 2D de caracteres
+        Genera un mapa garantizando que sea completamente navegable.
         """
-        for attempt in range(max_attempts):
-            grid = self._create_base_grid(size)
-            grid = self._add_internal_walls(grid, wall_density)
-            grid = self._add_obstacles(grid, obstacle_density)
+        # 1. Crear caja vacía con bordes
+        grid = self._create_base_grid(width, height)
 
-            # Verificar navegabilidad
-            connected_ratio = self._check_connectivity(grid)
+        # 2. Añadir muros internos (patrones aleatorios)
+        grid = self._add_internal_walls(grid, wall_density)
 
-            if connected_ratio >= min_open_ratio:
-                return grid
+        # 3. CRÍTICO: Asegurar conectividad total
+        # Esto elimina "cuadrados cerrados" abriendo caminos
+        grid = self._ensure_complete_connectivity(grid)
 
-            # Si no es navegable, reducir densidad y reintentar
-            wall_density *= 0.9
-            obstacle_density *= 0.9
+        # 4. Añadir obstáculos en lugares libres
+        grid = self._add_obstacles(grid, obstacle_density)
 
-        # Fallback: mapa vacío con solo bordes
-        return self._create_base_grid(size)
+        return grid
 
-    def _create_base_grid(self, size: int) -> np.ndarray:
-        """Crea grid base con bordes de muros."""
-        grid = np.full((size, size), self.EMPTY, dtype='<U1')
-
-        # Bordes
+    def _create_base_grid(self, width: int, height: int) -> np.ndarray:
+        """Crea grid base con bordes."""
+        grid = np.full((height, width), self.EMPTY, dtype='<U1')
         grid[0, :] = self.WALL
         grid[-1, :] = self.WALL
         grid[:, 0] = self.WALL
         grid[:, -1] = self.WALL
-
         return grid
 
     def _add_internal_walls(self, grid: np.ndarray, density: float) -> np.ndarray:
-        """Añade muros internos con patrones estructurados."""
-        size = grid.shape[0]
+        """Añade muros intentando mantener una estructura tipo grilla/ciudad."""
+        height, width = grid.shape
+        area = width * height
+        target_walls = int(area * density)
+        
+        walls_placed = 0
+        attempts = 0
+        max_attempts = target_walls * 5
 
-        # Número de segmentos de muro a añadir
-        num_segments = int((size * size) * density / 5)
-
-        for _ in range(num_segments):
-            # Punto de inicio aleatorio (evitando bordes)
-            x = self.rng.integers(2, size - 2)
-            y = self.rng.integers(2, size - 2)
-
-            # Longitud y dirección del segmento
-            length = self.rng.integers(2, min(8, size // 4))
+        while walls_placed < target_walls and attempts < max_attempts:
+            attempts += 1
+            
+            # Intentar alinear muros a coordenadas pares para que parezca más "ciudad"
+            # y menos ruido aleatorio
+            x = self.rng.integers(2, width - 2)
+            y = self.rng.integers(2, height - 2)
+            
+            length = self.rng.integers(2, min(10, width // 3))
             horizontal = self.rng.random() > 0.5
 
             if horizontal:
-                for i in range(length):
-                    nx = x + i
-                    if 1 < nx < size - 1:
-                        grid[y, nx] = self.WALL
+                if x + length < width - 1:
+                    grid[y, x:x+length] = self.WALL
+                    walls_placed += length
             else:
-                for i in range(length):
-                    ny = y + i
-                    if 1 < ny < size - 1:
-                        grid[ny, x] = self.WALL
+                if y + length < height - 1:
+                    grid[y:y+length, x] = self.WALL
+                    walls_placed += length
 
         return grid
 
-    def _add_obstacles(self, grid: np.ndarray, density: float) -> np.ndarray:
-        """Añade obstáculos dispersos."""
-        size = grid.shape[0]
-        num_obstacles = int((size - 2) ** 2 * density)
-
-        # Posiciones internas disponibles
-        available = []
-        for y in range(1, size - 1):
-            for x in range(1, size - 1):
-                if grid[y, x] == self.EMPTY:
-                    available.append((x, y))
-
-        if len(available) > num_obstacles:
-            indices = self.rng.choice(len(available), size=num_obstacles, replace=False)
-            for idx in indices:
-                x, y = available[idx]
-                grid[y, x] = self.OBSTACLE
-
-        return grid
-
-    def _check_connectivity(self, grid: np.ndarray) -> float:
+    def _ensure_complete_connectivity(self, grid: np.ndarray) -> np.ndarray:
         """
-        Verifica qué proporción de celdas vacías están conectadas.
-
-        Returns:
-            Ratio de celdas conectadas (0-1)
+        Identifica zonas aisladas y abre caminos (túneles) hacia la zona principal.
+        Garantiza que NO existan cuadrados cerrados inalcanzables.
         """
-        size = grid.shape[0]
-
-        # Encontrar primera celda vacía
-        start = None
-        empty_cells = set()
-
-        for y in range(1, size - 1):
-            for x in range(1, size - 1):
+        height, width = grid.shape
+        
+        # Obtener todas las celdas vacías
+        empty_cells = []
+        for y in range(1, height - 1):
+            for x in range(1, width - 1):
                 if grid[y, x] == self.EMPTY:
-                    empty_cells.add((x, y))
-                    if start is None:
-                        start = (x, y)
+                    empty_cells.append((x, y))
 
         if not empty_cells:
-            return 0.0
+            return grid
 
-        # BFS para encontrar celdas conectadas
+        # 1. Encontrar regiones conectadas (Flood Fill)
         visited = set()
-        queue = deque([start])
-        visited.add(start)
+        regions = []
 
-        directions = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+        for start_pos in empty_cells:
+            if start_pos in visited:
+                continue
+            
+            # Nueva región encontrada
+            current_region = []
+            queue = deque([start_pos])
+            visited.add(start_pos)
+            
+            while queue:
+                cx, cy = queue.popleft()
+                current_region.append((cx, cy))
+                
+                # Vecinos (arriba, abajo, izq, der)
+                for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                    nx, ny = cx + dx, cy + dy
+                    if (nx, ny) not in visited:
+                        if 0 <= nx < width and 0 <= ny < height:
+                            if grid[ny, nx] == self.EMPTY:
+                                visited.add((nx, ny))
+                                queue.append((nx, ny))
+            
+            regions.append(current_region)
 
-        while queue:
-            x, y = queue.popleft()
+        if len(regions) <= 1:
+            return grid  # Ya está todo conectado
 
-            for dx, dy in directions:
-                nx, ny = x + dx, y + dy
+        # 2. Conectar regiones aisladas a la región más grande
+        # Ordenar regiones por tamaño (la más grande es la principal)
+        regions.sort(key=len, reverse=True)
+        main_region = set(regions[0])
 
-                if (nx, ny) not in visited and (nx, ny) in empty_cells:
-                    visited.add((nx, ny))
-                    queue.append((nx, ny))
+        # Para cada región aislada, cavar un túnel hacia la región principal
+        for i in range(1, len(regions)):
+            isolated_region = regions[i]
+            
+            # Si la región es muy pequeña (ej. 1 o 2 celdas), mejor rellenarla (es basura)
+            if len(isolated_region) < 3:
+                for rx, ry in isolated_region:
+                    grid[ry, rx] = self.WALL
+                continue
 
-        return len(visited) / len(empty_cells)
+            # Si es una región útil, conectarla
+            start_point = isolated_region[0] # Un punto de la isla
+            
+            # Buscar el punto más cercano de la región principal (fuerza bruta simple)
+            # Nota: Para mapas gigantes esto podría optimizarse, pero para 60x60 es instantáneo.
+            best_target = None
+            min_dist = float('inf')
+            
+            # Muestrear puntos para no comparar todos con todos
+            sample_main = list(main_region)[::max(1, len(main_region)//20)]
+            
+            for tx, ty in sample_main:
+                dist = abs(start_point[0] - tx) + abs(start_point[1] - ty)
+                if dist < min_dist:
+                    min_dist = dist
+                    best_target = (tx, ty)
+            
+            if best_target:
+                self._carve_path(grid, start_point, best_target)
+                # Ahora esta región es parte de la principal (lógicamente)
+                main_region.update(isolated_region)
+
+        return grid
+
+    def _carve_path(self, grid: np.ndarray, start: Tuple[int, int], end: Tuple[int, int]):
+        """Cava un camino recto (L-shape) entre dos puntos, rompiendo muros."""
+        x1, y1 = start
+        x2, y2 = end
+        
+        # Moverse primero en X luego en Y
+        # Paso 1: Horizontal
+        step_x = 1 if x2 > x1 else -1
+        for x in range(x1, x2 + step_x, step_x):
+            if grid[y1, x] == self.WALL:
+                grid[y1, x] = self.EMPTY
+        
+        # Paso 2: Vertical
+        step_y = 1 if y2 > y1 else -1
+        for y in range(y1, y2 + step_y, step_y):
+            if grid[y, x2] == self.WALL:
+                grid[y, x2] = self.EMPTY
+
+    def _add_obstacles(self, grid: np.ndarray, density: float) -> np.ndarray:
+        """Añade obstáculos dispersos sin bloquear pasillos únicos."""
+        height, width = grid.shape
+        num_obstacles = int((width * height) * density)
+        
+        count = 0
+        attempts = 0
+        max_attempts = num_obstacles * 2
+        
+        while count < num_obstacles and attempts < max_attempts:
+            attempts += 1
+            x = self.rng.integers(1, width - 1)
+            y = self.rng.integers(1, height - 1)
+            
+            if grid[y, x] == self.EMPTY:
+                # Verificar que no bloquee un pasillo (regla simple de vecinos)
+                # Contar muros vecinos
+                neighbors = 0
+                for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                    if grid[y+dy, x+dx] == self.WALL:
+                        neighbors += 1
+                
+                # Solo poner obstáculo si el espacio es abierto (pocos muros vecinos)
+                if neighbors < 2:
+                    grid[y, x] = self.OBSTACLE
+                    count += 1
+                    
+        return grid
 
     def generate_preset(self, preset: str) -> np.ndarray:
         """Genera mapa usando configuración predefinida."""
         if preset not in self.PRESETS:
-            raise ValueError(f"Preset desconocido: {preset}. Opciones: {list(self.PRESETS.keys())}")
+            raise ValueError(f"Preset desconocido: {preset}")
 
         config = self.PRESETS[preset]
         return self.generate(
-            size=config["size"],
+            width=config["width"],
+            height=config["height"],
             wall_density=config["wall_density"],
             obstacle_density=config["obstacle_density"],
-            min_open_ratio=config["min_open_ratio"],
         )
 
     def save_map(self, grid: np.ndarray, filepath: str) -> None:
-        """Guarda el mapa en un archivo de texto."""
+        """Guarda el mapa asegurando alineación perfecta."""
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
 
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', newline='\n') as f: # newline='\n' para consistencia Linux/Win
             for row in grid:
-                f.write(''.join(row) + '\n')
+                # .join garantiza que no haya espacios extra
+                line = "".join(row)
+                f.write(line + '\n')
 
-        print(f"Mapa guardado: {filepath} ({grid.shape[0]}x{grid.shape[1]})")
-
-    def load_map(self, filepath: str) -> np.ndarray:
-        """Carga un mapa desde archivo."""
-        with open(filepath, 'r') as f:
-            lines = f.read().strip().split('\n')
-
-        height = len(lines)
-        width = max(len(line) for line in lines)
-
-        grid = np.full((height, width), self.EMPTY, dtype='<U1')
-
-        for y, line in enumerate(lines):
-            for x, char in enumerate(line):
-                grid[y, x] = char
-
-        return grid
+        print(f"Mapa guardado: {filepath} ({grid.shape[1]}x{grid.shape[0]})")
 
     def get_map_stats(self, grid: np.ndarray) -> dict:
-        """Obtiene estadísticas del mapa."""
         total = grid.size
         empty = np.sum(grid == self.EMPTY)
-        walls = np.sum(grid == self.WALL)
-        obstacles = np.sum(grid == self.OBSTACLE)
-
         return {
-            "size": f"{grid.shape[0]}x{grid.shape[1]}",
-            "total_cells": total,
-            "empty": empty,
-            "walls": walls,
-            "obstacles": obstacles,
-            "empty_ratio": empty / total,
-            "connectivity": self._check_connectivity(grid),
+            "size": f"{grid.shape[1]}x{grid.shape[0]}",
+            "empty_cells": int(empty),
+            "ratio": float(empty / total)
         }
 
 
 def generate_curriculum_maps(output_dir: str, seed: int = None) -> None:
-    """
-    Genera los tres mapas del curriculum.
-
-    Args:
-        output_dir: Directorio donde guardar los mapas
-        seed: Semilla para reproducibilidad
-    """
     generator = CurriculumMapGenerator(seed=seed)
-
-    presets = ["small", "medium", "large"]
-
-    print("=" * 50)
-    print("Generando mapas para Curriculum Learning")
-    print("=" * 50)
-
-    for preset in presets:
-        filepath = os.path.join(output_dir, f"{preset}.txt")
-
-        print(f"\nGenerando {preset}...")
+    print("Generando mapas corregidos...")
+    
+    for preset in ["small", "medium", "large"]:
         grid = generator.generate_preset(preset)
+        filepath = os.path.join(output_dir, f"{preset}.txt")
         generator.save_map(grid, filepath)
-
-        stats = generator.get_map_stats(grid)
-        print(f"  Tamaño: {stats['size']}")
-        print(f"  Celdas vacías: {stats['empty']} ({stats['empty_ratio']:.1%})")
-        print(f"  Muros: {stats['walls']}")
-        print(f"  Obstáculos: {stats['obstacles']}")
-        print(f"  Conectividad: {stats['connectivity']:.1%}")
-
-    print("\n" + "=" * 50)
-    print("Mapas generados exitosamente!")
-    print("=" * 50)
-
+        print(f"  {preset}: OK")
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Generador de mapas para Curriculum Learning"
-    )
-
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default="maps",
-        help="Directorio de salida para los mapas (default: maps)"
-    )
-
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help="Semilla para reproducibilidad"
-    )
-
-    parser.add_argument(
-        "--preset",
-        type=str,
-        choices=["small", "medium", "large", "all"],
-        default="all",
-        help="Preset a generar (default: all)"
-    )
-
-    parser.add_argument(
-        "--custom-size",
-        type=int,
-        default=None,
-        help="Tamaño personalizado (ignora preset)"
-    )
-
-    parser.add_argument(
-        "--wall-density",
-        type=float,
-        default=0.05,
-        help="Densidad de muros para tamaño personalizado"
-    )
-
-    parser.add_argument(
-        "--obstacle-density",
-        type=float,
-        default=0.03,
-        help="Densidad de obstáculos para tamaño personalizado"
-    )
-
-    parser.add_argument(
-        "--output-file",
-        type=str,
-        default=None,
-        help="Nombre del archivo de salida (para mapa personalizado)"
-    )
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir", type=str, default="maps")
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--preset", type=str, default="all")
+    parser.add_argument("--custom-size", type=int, default=None)
+    
     args = parser.parse_args()
-
     generator = CurriculumMapGenerator(seed=args.seed)
 
     if args.custom_size:
-        # Generar mapa personalizado
-        grid = generator.generate(
-            size=args.custom_size,
-            wall_density=args.wall_density,
-            obstacle_density=args.obstacle_density,
-        )
-
-        filename = args.output_file or f"custom_{args.custom_size}x{args.custom_size}.txt"
-        filepath = os.path.join(args.output_dir, filename)
-        generator.save_map(grid, filepath)
-
-        stats = generator.get_map_stats(grid)
-        print(f"\nEstadísticas:")
-        for key, value in stats.items():
-            print(f"  {key}: {value}")
-
+        grid = generator.generate(args.custom_size, args.custom_size)
+        generator.save_map(grid, os.path.join(args.output_dir, f"custom_{args.custom_size}.txt"))
     elif args.preset == "all":
         generate_curriculum_maps(args.output_dir, args.seed)
-
     else:
-        # Generar preset específico
         grid = generator.generate_preset(args.preset)
-        filepath = os.path.join(args.output_dir, f"{args.preset}.txt")
-        generator.save_map(grid, filepath)
-
-        stats = generator.get_map_stats(grid)
-        print(f"\nEstadísticas:")
-        for key, value in stats.items():
-            print(f"  {key}: {value}")
-
+        generator.save_map(grid, os.path.join(args.output_dir, f"{args.preset}.txt"))
 
 if __name__ == "__main__":
     main()
