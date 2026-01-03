@@ -3,11 +3,23 @@
 Play - Visualizar Partida con Modelos Entrenados
 =================================================
 Carga modelos entrenados y ejecuta una partida visual infinita.
+Flexible para visualizar cualquier enfrentamiento con diferentes mapas y agentes.
 
 Uso:
-    python scripts/play.py --models-dir models/dual_xxx
+    # Básico con modelos
+    python scripts/play.py --models-dir models/curriculum
     python scripts/play.py --healthy-model path/to/healthy.zip --infected-model path/to/infected.zip
-    python scripts/play.py --models-dir models/dual_xxx --fps 10
+
+    # Personalizar mapa y agentes
+    python scripts/play.py --map-file maps/curriculum_lvl3.txt --num-healthy 8 --num-infected 2
+    python scripts/play.py --map-file maps/large.txt --num-healthy 12 --num-infected 3 --fps 20
+
+    # Mezclar modelos con heurística
+    python scripts/play.py --healthy-model models/healthy.zip  # Infected usa heurística
+    python scripts/play.py --infected-model models/infected.zip  # Healthy usa heurística
+
+    # Sin modelos (heurística vs heurística)
+    python scripts/play.py --map-file maps/curriculum_lvl5.txt --num-healthy 10 --num-infected 3
 
 Controles:
     SPACE: Pausar/Reanudar
@@ -47,14 +59,42 @@ class GamePlayer:
         self,
         healthy_model_path: str = None,
         infected_model_path: str = None,
+        map_file: str = None,
+        num_healthy: int = None,
+        num_infected: int = None,
         seed: int = 42,
     ):
-        # Crear entorno principal (usa mapa hardcodeado)
-        self.config = EnvConfig(
-            max_steps=999999999,  # Prácticamente infinito
-            seed=seed,
-        )
+        # Configurar entorno con parámetros personalizados
+        config_kwargs = {
+            "max_steps": 999999999,  # Prácticamente infinito
+            "seed": seed,
+        }
+
+        # Mapa personalizado
+        if map_file is not None:
+            config_kwargs["map_file"] = map_file
+
+        # Número de agentes personalizado
+        if num_healthy is not None and num_infected is not None:
+            config_kwargs["num_agents"] = num_healthy + num_infected
+            config_kwargs["initial_infected"] = num_infected
+        elif num_healthy is not None:
+            # Solo se especificó healthy, usar 1 infected por defecto
+            config_kwargs["num_agents"] = num_healthy + 1
+            config_kwargs["initial_infected"] = 1
+        elif num_infected is not None:
+            # Solo se especificó infected, usar valor por defecto de healthy
+            default_healthy = 14  # num_agents default es 15
+            config_kwargs["num_agents"] = default_healthy + num_infected
+            config_kwargs["initial_infected"] = num_infected
+
+        self.config = EnvConfig(**config_kwargs)
         self.env = InfectionEnv(self.config)
+
+        # Guardar configuración para mostrar en panel
+        self.map_file = map_file or self.config.map_file
+        self.num_healthy_config = num_healthy
+        self.num_infected_config = num_infected
 
         # Dimensiones del mapa
         self.width = self.env.width
@@ -324,6 +364,24 @@ class GamePlayer:
         self.screen.blit(text, (x, y))
         y += 35
 
+        # Configuración del entorno
+        pygame.draw.line(self.screen, self.colors["text_dim"], (x, y), (x + 290, y))
+        y += 15
+
+        text = self.small_font.render("Environment:", True, self.colors["text"])
+        self.screen.blit(text, (x, y))
+        y += 25
+
+        # Mostrar mapa (nombre del archivo)
+        map_name = Path(self.map_file).stem if self.map_file else "default"
+        text = self.small_font.render(f"  Map: {map_name}", True, self.colors["text_dim"])
+        self.screen.blit(text, (x, y))
+        y += 22
+
+        text = self.small_font.render(f"  Size: {self.width}x{self.height}", True, self.colors["text_dim"])
+        self.screen.blit(text, (x, y))
+        y += 35
+
         # Modelos
         pygame.draw.line(self.screen, self.colors["text_dim"], (x, y), (x + 290, y))
         y += 15
@@ -454,18 +512,46 @@ class GamePlayer:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Play infection game with trained models")
+    parser = argparse.ArgumentParser(
+        description="Visualizar partidas de Infection RL con modelos entrenados",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Ejemplos:
+  # Con modelos del curriculum
+  python scripts/play.py --models-dir models/curriculum
 
+  # Personalizar mapa y agentes
+  python scripts/play.py --map-file maps/curriculum_lvl3.txt --num-healthy 8 --num-infected 2
+
+  # Mezclar modelo con heurística
+  python scripts/play.py --healthy-model models/healthy.zip --map-file maps/large.txt
+
+  # Solo heurística (sin modelos)
+  python scripts/play.py --map-file maps/curriculum_lvl5.txt --num-healthy 10 --num-infected 3
+        """
+    )
+
+    # Argumentos de modelos
     parser.add_argument("--models-dir", type=str, default=None,
-                        help="Directory with models (healthy_final.zip and infected_final.zip)")
+                        help="Directorio con modelos (healthy_final.zip y infected_final.zip)")
     parser.add_argument("--healthy-model", type=str, default=None,
-                        help="Path to healthy model")
+                        help="Ruta al modelo healthy (.zip)")
     parser.add_argument("--infected-model", type=str, default=None,
-                        help="Path to infected model")
+                        help="Ruta al modelo infected (.zip)")
+
+    # Argumentos de entorno
+    parser.add_argument("--map-file", type=str, default=None,
+                        help="Ruta al archivo de mapa (.txt)")
+    parser.add_argument("--num-healthy", type=int, default=None,
+                        help="Número de agentes sanos")
+    parser.add_argument("--num-infected", type=int, default=None,
+                        help="Número de agentes infectados")
+
+    # Argumentos de visualización
     parser.add_argument("--fps", type=int, default=15,
-                        help="Frames per second (default: 15)")
+                        help="Frames por segundo (default: 15)")
     parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed (default: 42)")
+                        help="Semilla aleatoria (default: 42)")
 
     args = parser.parse_args()
 
@@ -481,24 +567,48 @@ def main():
     if args.models_dir:
         models_dir = Path(args.models_dir)
         if not healthy_path:
-            healthy_path = models_dir / "healthy_final.zip"
-            if not healthy_path.exists():
-                healthy_path = None
+            # Buscar en orden de prioridad
+            for name in ["healthy_final.zip", "best_healthy_model.zip"]:
+                candidate = models_dir / name
+                if candidate.exists():
+                    healthy_path = candidate
+                    break
         if not infected_path:
-            infected_path = models_dir / "infected_final.zip"
-            if not infected_path.exists():
-                infected_path = None
+            for name in ["infected_final.zip", "best_infected_model.zip"]:
+                candidate = models_dir / name
+                if candidate.exists():
+                    infected_path = candidate
+                    break
 
     # Convertir a string
     healthy_path = str(healthy_path) if healthy_path else None
     infected_path = str(infected_path) if infected_path else None
 
+    # Mostrar configuración
+    print("\n" + "=" * 50)
+    print("  INFECTION GAME - Configuración")
+    print("=" * 50)
+    if args.map_file:
+        print(f"  Mapa: {args.map_file}")
+    else:
+        print("  Mapa: default")
+    if args.num_healthy:
+        print(f"  Healthy: {args.num_healthy}")
+    if args.num_infected:
+        print(f"  Infected: {args.num_infected}")
+    print(f"  Modelo Healthy: {'AI' if healthy_path else 'Heurística'}")
+    print(f"  Modelo Infected: {'AI' if infected_path else 'Heurística'}")
+    print("=" * 50)
+
     if not healthy_path and not infected_path:
-        print("Warning: No models loaded, using heuristic policies")
+        print("  (Ambos bandos usan políticas heurísticas)")
 
     player = GamePlayer(
         healthy_model_path=healthy_path,
         infected_model_path=infected_path,
+        map_file=args.map_file,
+        num_healthy=args.num_healthy,
+        num_infected=args.num_infected,
         seed=args.seed,
     )
 

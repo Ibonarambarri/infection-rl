@@ -24,6 +24,7 @@ class CurriculumMapGenerator:
 
     # Configuraciones predefinidas
     PRESETS = {
+        # Mapas originales
         "small": {
             "width": 20, "height": 20,
             "wall_density": 0.1,
@@ -39,7 +40,49 @@ class CurriculumMapGenerator:
             "wall_density": 0.06,
             "obstacle_density": 0.03,
         },
+        # ========================================
+        # Suite de Curriculum Learning (5 niveles)
+        # ========================================
+        # Nivel 1: 20x20, muy abierto (puro aprendizaje de persecución)
+        "curriculum_lvl1": {
+            "width": 20, "height": 20,
+            "wall_density": 0.02,      # Casi sin muros internos
+            "obstacle_density": 0.01,   # Mínimos obstáculos
+        },
+        # Nivel 2: 30x30, obstáculos dispersos
+        "curriculum_lvl2": {
+            "width": 30, "height": 30,
+            "wall_density": 0.04,       # Pocos muros
+            "obstacle_density": 0.03,   # Obstáculos dispersos
+        },
+        # Nivel 3: 40x40, estructura tipo ciudad
+        "curriculum_lvl3": {
+            "width": 40, "height": 40,
+            "wall_density": 0.08,       # Muros tipo ciudad
+            "obstacle_density": 0.04,   # Obstáculos moderados
+        },
+        # Nivel 4: 50x50, ciudad densa
+        "curriculum_lvl4": {
+            "width": 50, "height": 50,
+            "wall_density": 0.10,       # Estructura densa
+            "obstacle_density": 0.05,   # Más obstáculos
+        },
+        # Nivel 5: 60x60, laberinto complejo
+        "curriculum_lvl5": {
+            "width": 60, "height": 60,
+            "wall_density": 0.12,       # Laberinto denso
+            "obstacle_density": 0.06,   # Alta densidad de obstáculos
+        },
     }
+
+    # Lista ordenada de niveles de curriculum
+    CURRICULUM_LEVELS = [
+        "curriculum_lvl1",
+        "curriculum_lvl2",
+        "curriculum_lvl3",
+        "curriculum_lvl4",
+        "curriculum_lvl5",
+    ]
 
     # Caracteres del mapa
     EMPTY = '.'
@@ -285,33 +328,97 @@ class CurriculumMapGenerator:
 
 
 def generate_curriculum_maps(output_dir: str, seed: int = None) -> None:
+    """Genera todos los mapas del curriculum (5 niveles)."""
     generator = CurriculumMapGenerator(seed=seed)
-    print("Generando mapas corregidos...")
-    
-    for preset in ["small", "medium", "large"]:
-        grid = generator.generate_preset(preset)
-        filepath = os.path.join(output_dir, f"{preset}.txt")
+    print("=" * 50)
+    print("Generando mapas de Curriculum Learning...")
+    print("=" * 50)
+
+    for level in CurriculumMapGenerator.CURRICULUM_LEVELS:
+        grid = generator.generate_preset(level)
+        filepath = os.path.join(output_dir, f"{level}.txt")
         generator.save_map(grid, filepath)
-        print(f"  {preset}: OK")
+        config = generator.PRESETS[level]
+        print(f"  {level}: {config['width']}x{config['height']} - OK")
+
+    print("-" * 50)
+    print(f"Total: {len(CurriculumMapGenerator.CURRICULUM_LEVELS)} mapas generados en {output_dir}/")
+    print("=" * 50)
+
+
+def generate_all_maps(output_dir: str, seed: int = None) -> None:
+    """Genera TODOS los mapas (originales + curriculum)."""
+    generator = CurriculumMapGenerator(seed=seed)
+    print("=" * 50)
+    print("Generando TODOS los mapas...")
+    print("=" * 50)
+
+    # Generar todos los presets
+    for preset_name, config in generator.PRESETS.items():
+        grid = generator.generate_preset(preset_name)
+        filepath = os.path.join(output_dir, f"{preset_name}.txt")
+        generator.save_map(grid, filepath)
+        print(f"  {preset_name}: {config['width']}x{config['height']} - OK")
+
+    print("-" * 50)
+    print(f"Total: {len(generator.PRESETS)} mapas generados en {output_dir}/")
+    print("=" * 50)
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output-dir", type=str, default="maps")
-    parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--preset", type=str, default="all")
-    parser.add_argument("--custom-size", type=int, default=None)
-    
+    parser = argparse.ArgumentParser(
+        description="Generador de mapas para Curriculum Learning",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Ejemplos de uso:
+  python generate_maps.py --preset curriculum          # Genera los 5 niveles de curriculum
+  python generate_maps.py --preset all                 # Genera TODOS los mapas
+  python generate_maps.py --preset curriculum_lvl3     # Genera solo el nivel 3
+  python generate_maps.py --custom-size 45             # Genera mapa custom 45x45
+  python generate_maps.py --list                       # Lista todos los presets disponibles
+        """
+    )
+    parser.add_argument("--output-dir", type=str, default="maps",
+                        help="Directorio de salida para los mapas (default: maps)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Semilla para reproducibilidad")
+    parser.add_argument("--preset", type=str, default="curriculum",
+                        help="Preset a generar: 'curriculum', 'all', o nombre específico")
+    parser.add_argument("--custom-size", type=int, default=None,
+                        help="Tamaño para mapa custom (ej: 45 para 45x45)")
+    parser.add_argument("--list", action="store_true",
+                        help="Listar todos los presets disponibles")
+
     args = parser.parse_args()
+
+    # Listar presets disponibles
+    if args.list:
+        print("\nPresets disponibles:")
+        print("-" * 50)
+        for name, config in CurriculumMapGenerator.PRESETS.items():
+            print(f"  {name:20s} -> {config['width']}x{config['height']}")
+        print("-" * 50)
+        print("\nModos especiales:")
+        print("  curriculum  -> Genera los 5 niveles de curriculum")
+        print("  all         -> Genera TODOS los mapas")
+        return
+
     generator = CurriculumMapGenerator(seed=args.seed)
 
     if args.custom_size:
         grid = generator.generate(args.custom_size, args.custom_size)
         generator.save_map(grid, os.path.join(args.output_dir, f"custom_{args.custom_size}.txt"))
-    elif args.preset == "all":
+    elif args.preset == "curriculum":
         generate_curriculum_maps(args.output_dir, args.seed)
+    elif args.preset == "all":
+        generate_all_maps(args.output_dir, args.seed)
     else:
+        if args.preset not in generator.PRESETS:
+            print(f"Error: Preset '{args.preset}' no encontrado.")
+            print(f"Presets válidos: {list(generator.PRESETS.keys())}")
+            return
         grid = generator.generate_preset(args.preset)
         generator.save_map(grid, os.path.join(args.output_dir, f"{args.preset}.txt"))
+
 
 if __name__ == "__main__":
     main()
