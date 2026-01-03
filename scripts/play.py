@@ -91,12 +91,15 @@ class GamePlayer:
         self.config = EnvConfig(**config_kwargs)
         self.env = InfectionEnv(self.config)
 
+        # Reset to load map and get correct dimensions
+        self.env.reset()
+
         # Guardar configuración para mostrar en panel
         self.map_file = map_file or self.config.map_file
         self.num_healthy_config = num_healthy
         self.num_infected_config = num_infected
 
-        # Dimensiones del mapa
+        # Dimensiones del mapa (after reset so map is loaded)
         self.width = self.env.width
         self.height = self.env.height
 

@@ -28,8 +28,9 @@ class EnvConfig:
     num_agents: int = 15
     initial_infected: int = 1
 
-    # Mapa (siempre se carga desde archivo)
-    map_file: str = DEFAULT_MAP_FILE
+    # Mapa (se puede cargar desde archivo o string)
+    map_file: Optional[str] = DEFAULT_MAP_FILE
+    map_data: Optional[str] = None  # String con el contenido del mapa (tiene prioridad)
 
     # Mecánicas
     infection_radius: int = 1
@@ -95,6 +96,7 @@ class InfectionEnv(gym.Env):
 
         self.map_config = MapConfig(
             map_file=config.map_file,
+            map_data=config.map_data,
             seed=config.seed,
         )
         self.map_generator: MapGenerator = None

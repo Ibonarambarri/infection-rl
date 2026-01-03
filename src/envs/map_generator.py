@@ -20,7 +20,8 @@ class CellType(Enum):
 @dataclass
 class MapConfig:
     """Configuración del mapa."""
-    map_file: str
+    map_file: Optional[str] = None
+    map_data: Optional[str] = None  # String con el contenido del mapa
     seed: Optional[int] = None
     width: int = 0   # Se actualiza al cargar
     height: int = 0  # Se actualiza al cargar
@@ -28,9 +29,9 @@ class MapConfig:
 
 class MapGenerator:
     """
-    Cargador de mapas desde archivo.
+    Cargador de mapas desde archivo o string.
 
-    Formato del archivo:
+    Formato del mapa:
         # = muro (WALL)
         . = vacío (EMPTY)
         O = obstáculo (OBSTACLE)
@@ -41,12 +42,28 @@ class MapGenerator:
         self.config = config
         self.rng = np.random.default_rng(config.seed)
         self.grid: np.ndarray = None
-        self._load_from_file(config.map_file)
+
+        # Cargar mapa desde string o archivo
+        if config.map_data is not None:
+            self._load_from_string(config.map_data)
+        elif config.map_file is not None:
+            self._load_from_file(config.map_file)
+        else:
+            raise ValueError("Debe proporcionar map_file o map_data")
 
     def _load_from_file(self, filepath: str) -> None:
         """Carga un mapa desde un archivo de texto."""
         with open(filepath, 'r') as f:
-            lines = f.read().strip().split('\n')
+            content = f.read().strip()
+        self._parse_map_content(content)
+
+    def _load_from_string(self, map_data: str) -> None:
+        """Carga un mapa desde un string."""
+        self._parse_map_content(map_data.strip())
+
+    def _parse_map_content(self, content: str) -> None:
+        """Parsea el contenido del mapa (común para archivo y string)."""
+        lines = content.split('\n')
 
         # Determinar dimensiones
         height = len(lines)

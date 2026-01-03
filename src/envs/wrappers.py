@@ -376,6 +376,7 @@ class MultiAgentToSingleAgentWrapper(gym.Wrapper):
 
 def make_infection_env(
     map_file: str = None,
+    map_data: str = None,
     num_agents: int = 15,
     initial_infected: int = 1,
     controlled_agent_id: int = 0,
@@ -393,6 +394,7 @@ def make_infection_env(
 
     Args:
         map_file: Archivo del mapa (si None, usa default)
+        map_data: String con el contenido del mapa (tiene prioridad sobre map_file)
         num_agents: Número total de agentes
         initial_infected: Número de agentes infectados al inicio
         controlled_agent_id: ID del agente a controlar (para Parameter Sharing)
@@ -417,7 +419,9 @@ def make_infection_env(
         "view_size": view_size,
     }
 
-    if map_file is not None:
+    if map_data is not None:
+        config_kwargs["map_data"] = map_data
+    elif map_file is not None:
         config_kwargs["map_file"] = map_file
 
     config = EnvConfig(**config_kwargs)
@@ -436,10 +440,11 @@ def make_infection_env(
 
 
 def make_vec_env_parameter_sharing(
-    map_file: str,
-    num_agents: int,
-    initial_infected: int,
-    force_role: str,
+    map_file: str = None,
+    map_data: str = None,
+    num_agents: int = 10,
+    initial_infected: int = 1,
+    force_role: str = "healthy",
     n_envs: int = None,
     seed: int = None,
     opponent_model: Optional[Union[str, Path, Any]] = None,
@@ -455,6 +460,7 @@ def make_vec_env_parameter_sharing(
 
     Args:
         map_file: Archivo del mapa
+        map_data: String con el contenido del mapa (tiene prioridad sobre map_file)
         num_agents: Número total de agentes
         initial_infected: Número de infectados iniciales
         force_role: Rol a entrenar ("healthy" o "infected")
@@ -499,6 +505,7 @@ def make_vec_env_parameter_sharing(
 
             env = make_infection_env(
                 map_file=map_file,
+                map_data=map_data,
                 num_agents=num_agents,
                 initial_infected=initial_infected,
                 controlled_agent_id=controlled_id,
