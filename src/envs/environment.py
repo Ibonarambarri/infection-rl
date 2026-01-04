@@ -8,7 +8,7 @@ Cuando un agente sano es infectado, se transforma en InfectedAgent.
 """
 
 from typing import Tuple, Dict, List, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections import deque
 import numpy as np
 import gymnasium as gym
@@ -16,6 +16,7 @@ from gymnasium import spaces
 
 from ..agents import BaseAgent, HealthyAgent, InfectedAgent, AgentCollection, Direction
 from .map_generator import MapGenerator, MapConfig, CellType
+from .reward_config import RewardConfig, RewardPreset
 
 # Mapa por defecto (hardcodeado)
 DEFAULT_MAP_FILE = "maps/vacio_60x60.txt"
@@ -36,11 +37,24 @@ class EnvConfig:
     infection_radius: int = 1
     max_steps: int = 1000
 
-    # Vista parcial del agente
-    view_size: int = 11
+    # Vista circular del agente
+    view_radius: int = 7  # Radio de visión (diámetro = 2*radius + 1 = 15)
     max_nearby_agents: int = 8
 
-    # Recompensas para agentes SANOS (HealthyAgent)
+    # Ventajas para infectados (para balancear el juego)
+    infected_speed: int = 1  # Celdas por movimiento (1 = normal, 2 = doble velocidad)
+    infected_global_vision: bool = False  # Si True, infectados ven todo el mapa
+
+    @property
+    def view_size(self) -> int:
+        """Tamaño de la vista (diámetro)."""
+        return self.view_radius * 2 + 1
+
+    # Configuracion de rewards progresiva (opcional)
+    # Si se proporciona, tiene prioridad sobre los campos individuales
+    reward_config: Optional[RewardConfig] = None
+
+    # Recompensas para agentes SANOS (HealthyAgent) - fallback si no hay reward_config
     reward_survive_step: float = 0.1
     reward_distance_bonus: float = 0.1
     reward_infected_penalty: float = -10.0
@@ -49,7 +63,7 @@ class EnvConfig:
     stuck_threshold: int = 3
     reward_survive_episode: float = 5.0
 
-    # Recompensas para agentes INFECTADOS (InfectedAgent)
+    # Recompensas para agentes INFECTADOS (InfectedAgent) - fallback si no hay reward_config
     reward_infect_agent: float = 15.0
     reward_approach_bonus: float = 0.2
     reward_step_penalty: float = -0.01
@@ -60,6 +74,26 @@ class EnvConfig:
     seed: Optional[int] = None
     render_mode: Optional[str] = None
     fixed_map: bool = True
+
+    def __post_init__(self):
+        """Inicializa reward_config si no se proporciona (backwards compatibility)."""
+        if self.reward_config is None:
+            # Crear RewardConfig desde los valores individuales (DENSE por defecto)
+            self.reward_config = RewardConfig(
+                preset=RewardPreset.DENSE,
+                reward_survive_step=self.reward_survive_step,
+                reward_distance_bonus=self.reward_distance_bonus,
+                reward_infected_penalty=self.reward_infected_penalty,
+                reward_not_moving_penalty=self.reward_not_moving_penalty,
+                reward_stuck_penalty=self.reward_stuck_penalty,
+                stuck_threshold=self.stuck_threshold,
+                reward_survive_episode=self.reward_survive_episode,
+                reward_infect_agent=self.reward_infect_agent,
+                reward_approach_bonus=self.reward_approach_bonus,
+                reward_step_penalty=self.reward_step_penalty,
+                reward_all_infected_bonus=self.reward_all_infected_bonus,
+                reward_exploration=self.reward_exploration,
+            )
 
 
 class InfectionEnv(gym.Env):
@@ -119,10 +153,12 @@ class InfectionEnv(gym.Env):
 
         self.action_space = spaces.Discrete(4)
 
+        # Vista circular: (view_size, view_size, 2) donde view_size = 2*radius + 1
+        view_size = config.view_size  # 15 con radius=7
         self.observation_space = spaces.Dict({
             "image": spaces.Box(
                 low=0, high=255,
-                shape=(config.view_size, config.view_size, 3),
+                shape=(view_size, view_size, 2),  # 2 canales: tipo + distancia
                 dtype=np.uint8
             ),
             "direction": spaces.Discrete(4),
@@ -137,6 +173,7 @@ class InfectionEnv(gym.Env):
 
         self._last_positions: Dict[int, Tuple[int, int]] = {}
         self._steps_in_same_cell: Dict[int, int] = {}
+        self._prev_distances: Dict[int, float] = {}  # Para tracking de progreso de infected
 
     def reset(
         self,
@@ -183,6 +220,7 @@ class InfectionEnv(gym.Env):
         self.infection_events = []
         self._last_positions = {a.id: a.position for a in self.agents}
         self._steps_in_same_cell = {a.id: 0 for a in self.agents}
+        self._prev_distances = {}  # Reset tracking de distancias
 
         obs = self._get_observation(self.agents.all[0])
         info = self._get_info()
@@ -308,9 +346,14 @@ class InfectionEnv(gym.Env):
         elif action == 1:
             agent.turn_right()
         elif action == 2:
-            new_x, new_y = agent.move_forward()
-            if self._is_valid_move(new_x, new_y, agent.id):
-                agent.set_position(new_x, new_y)
+            # Determinar velocidad (infectados pueden moverse más rápido)
+            speed = self.config.infected_speed if agent.is_infected else 1
+            for _ in range(speed):
+                new_x, new_y = agent.move_forward()
+                if self._is_valid_move(new_x, new_y, agent.id):
+                    agent.set_position(new_x, new_y)
+                else:
+                    break  # Parar si hay obstáculo
 
     def _is_valid_move(self, x: int, y: int, agent_id: int) -> bool:
         """Verifica si un movimiento es válido."""
@@ -368,11 +411,12 @@ class InfectionEnv(gym.Env):
 
     def _calculate_reward(self, agent: BaseAgent, new_infections: List[int], original_id: int) -> float:
         """Calcula la recompensa para un agente."""
+        rc = self.config.reward_config
         reward = 0.0
 
         # Si el agente era sano y fue infectado
         if original_id in new_infections:
-            reward = self.config.reward_infected_penalty
+            reward = rc.reward_infected_penalty
         elif isinstance(agent, HealthyAgent):
             reward = self._calculate_healthy_reward(agent)
         elif isinstance(agent, InfectedAgent):
@@ -382,69 +426,114 @@ class InfectionEnv(gym.Env):
         return reward
 
     def _calculate_healthy_reward(self, agent: HealthyAgent) -> float:
-        """Calcula recompensa para HealthyAgent."""
-        reward = self.config.reward_survive_step
+        """Calcula recompensa para HealthyAgent usando pathfinding."""
+        rc = self.config.reward_config
+        reward = rc.reward_survive_step
 
-        # Bonus por distancia a infectados visibles
-        visible_infected = self._get_visible_agents(agent, infected_only=True)
-        if visible_infected:
-            nearest = min(visible_infected, key=lambda a: agent.distance_to(a))
-            distance = self._pathfinding_distance(agent.position, nearest.position)
-            if distance is None:
-                distance = agent.distance_to(nearest)
-            reward += self.config.reward_distance_bonus * distance
+        # Bonus por distancia a infectados (usando pathfinding real)
+        if rc.reward_distance_bonus > 0:
+            nearest_infected = self.agents.find_nearest_infected(agent)
+            if nearest_infected:
+                # Usar pathfinding distance (siempre retorna valor)
+                distance = self._get_pathfinding_distance(agent.position, nearest_infected.position)
+                max_dist = self.width + self.height
+                # Normalizar: más distancia = más bonus
+                distance_ratio = min(distance / max_dist, 1.0)
+                reward += rc.reward_distance_bonus * distance_ratio
 
-        # Penalización por no moverse
+        # Penalización por no moverse (solo si activo)
         steps_stuck = self._steps_in_same_cell.get(agent.id, 0)
-        if steps_stuck > 0:
-            reward += self.config.reward_not_moving_penalty
-            if steps_stuck >= self.config.stuck_threshold:
-                multiplier = min(steps_stuck - self.config.stuck_threshold + 1, 5)
-                reward += self.config.reward_stuck_penalty * multiplier
+        if steps_stuck > 0 and rc.reward_not_moving_penalty < 0:
+            reward += rc.reward_not_moving_penalty
+            if steps_stuck >= rc.stuck_threshold and rc.reward_stuck_penalty < 0:
+                multiplier = min(steps_stuck - rc.stuck_threshold + 1, 5)
+                reward += rc.reward_stuck_penalty * multiplier
 
         return reward
 
     def _calculate_infected_reward(self, agent: InfectedAgent, new_infections: List[int]) -> float:
-        """Calcula recompensa para InfectedAgent."""
+        """
+        Calcula recompensa para InfectedAgent usando pathfinding.
+
+        El sistema premia:
+        - Infectar agentes (reward_infect_agent)
+        - Proximidad al healthy más cercano (reward_approach_bonus)
+        - Progreso: reducir la distancia BFS (reward_progress_bonus)
+
+        Y penaliza:
+        - No hacer progreso (reward_no_progress_penalty)
+        - Quedarse quieto (reward_not_moving_penalty)
+        """
+        rc = self.config.reward_config
         reward = 0.0
 
         # Recompensa por infectar
         for event in self.infection_events:
             if event["step"] == self.current_step and event["infected_by"] == agent.id:
-                reward += self.config.reward_infect_agent
+                reward += rc.reward_infect_agent
 
-        # Bonus por acercarse a sanos visibles
-        visible_healthy = self._get_visible_agents(agent, healthy_only=True)
-        if visible_healthy:
-            nearest = min(visible_healthy, key=lambda a: agent.distance_to(a))
-            distance = self._pathfinding_distance(agent.position, nearest.position)
-            if distance is None:
-                distance = agent.distance_to(nearest)
+        # Calcular distancia BFS al healthy mas cercano
+        nearest_healthy = self.agents.find_nearest_healthy(agent)
+        if nearest_healthy:
+            # Usar pathfinding (siempre retorna valor)
+            current_distance = self._get_pathfinding_distance(agent.position, nearest_healthy.position)
             max_dist = self.width + self.height
-            proximity = (max_dist - distance) / max_dist
-            reward += self.config.reward_approach_bonus * proximity
-        else:
+
+            # Bonus por proximidad (basado en distancia real de pathfinding)
+            if rc.reward_approach_bonus > 0:
+                proximity = max(0, (max_dist - current_distance) / max_dist)
+                reward += rc.reward_approach_bonus * proximity
+
+            # Bonus/penalty por PROGRESO en pathfinding
+            prev_distance = self._prev_distances.get(agent.id)
+            if prev_distance is not None:
+                progress = prev_distance - current_distance  # Positivo = se acercó
+
+                if progress > 0:
+                    # Bonus por acercarse (premiar cada paso que reduce distancia BFS)
+                    progress_bonus = getattr(rc, 'reward_progress_bonus', 0.0)
+                    if progress_bonus > 0:
+                        reward += progress_bonus * progress
+                elif progress < 0:
+                    # Penalty por alejarse
+                    no_progress_penalty = getattr(rc, 'reward_no_progress_penalty', 0.0)
+                    if no_progress_penalty < 0:
+                        reward += no_progress_penalty
+                else:
+                    # progress == 0: no se movió hacia el objetivo
+                    no_progress_penalty = getattr(rc, 'reward_no_progress_penalty', 0.0)
+                    if no_progress_penalty < 0:
+                        reward += no_progress_penalty * 0.5  # Menor penalización
+
+            # Guardar distancia actual para siguiente step
+            self._prev_distances[agent.id] = current_distance
+
+        elif rc.reward_exploration > 0:
+            # Bonus de exploracion si no hay healthy
             if self._steps_in_same_cell.get(agent.id, 0) == 0:
-                reward += self.config.reward_exploration
+                reward += rc.reward_exploration
 
-        reward += self.config.reward_step_penalty
+        # Penalizacion por step (solo si activo)
+        if rc.reward_step_penalty < 0:
+            reward += rc.reward_step_penalty
 
-        # Penalización por no moverse
+        # Penalizacion por no moverse (solo si activo)
         steps_stuck = self._steps_in_same_cell.get(agent.id, 0)
-        if steps_stuck > 0:
-            reward += self.config.reward_not_moving_penalty
-            if steps_stuck >= self.config.stuck_threshold:
-                multiplier = min(steps_stuck - self.config.stuck_threshold + 1, 5)
-                reward += self.config.reward_stuck_penalty * multiplier
+        if steps_stuck > 0 and rc.reward_not_moving_penalty < 0:
+            reward += rc.reward_not_moving_penalty
+            if steps_stuck >= rc.stuck_threshold and rc.reward_stuck_penalty < 0:
+                multiplier = min(steps_stuck - rc.stuck_threshold + 1, 5)
+                reward += rc.reward_stuck_penalty * multiplier
 
         return reward
 
     def _calculate_episode_end_reward(self, agent: BaseAgent, all_infected: bool) -> float:
         """Calcula bonus de fin de episodio."""
+        rc = self.config.reward_config
         if isinstance(agent, HealthyAgent):
-            return self.config.reward_survive_episode
+            return rc.reward_survive_episode
         elif isinstance(agent, InfectedAgent) and all_infected:
-            return self.config.reward_all_infected_bonus
+            return rc.reward_all_infected_bonus
         return 0.0
 
     def _get_other_agent_action(self, agent: BaseAgent) -> int:
@@ -556,11 +645,21 @@ class InfectionEnv(gym.Env):
         else:
             return (-forward, -rel_x)
 
-    def _pathfinding_distance(self, start: Tuple[int, int], goal: Tuple[int, int]) -> Optional[int]:
-        """Calcula distancia real usando BFS."""
+    def _get_pathfinding_distance(self, start: Tuple[int, int], goal: Tuple[int, int]) -> int:
+        """
+        Calcula distancia REAL usando BFS (considerando obstáculos).
+
+        SIEMPRE retorna un valor (nunca None):
+        - Si hay camino: retorna distancia real
+        - Si no hay camino: retorna distancia muy grande (penaliza fuertemente)
+
+        Esto permite que el reward premie encontrar el camino más corto
+        rodeando obstáculos.
+        """
         if start == goal:
             return 0
 
+        max_dist = self.width + self.height  # Máxima distancia posible
         queue = deque([(start[0], start[1], 0)])
         visited = {start}
         directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]
@@ -568,10 +667,14 @@ class InfectionEnv(gym.Env):
         while queue:
             x, y, dist = queue.popleft()
 
+            # Limitar búsqueda para evitar lag en mapas grandes
+            if dist > max_dist:
+                break
+
             for dx, dy in directions:
                 nx, ny = x + dx, y + dy
 
-                if nx < 0 or nx >= self.width or ny < 0 or ny >= self.height:
+                if not (0 <= nx < self.width and 0 <= ny < self.height):
                     continue
                 if (nx, ny) in visited:
                     continue
@@ -584,11 +687,12 @@ class InfectionEnv(gym.Env):
                 visited.add((nx, ny))
                 queue.append((nx, ny, dist + 1))
 
-        return None
+        # No hay camino -> retornar distancia máxima (muy penalizado)
+        return max_dist * 2
 
     def _get_observation(self, agent: BaseAgent) -> Dict[str, Any]:
         """Genera la observación para un agente."""
-        image = self._get_partial_view(agent)
+        image = self._get_circular_view(agent)
         nearby = self._get_nearby_agents_info(agent)
 
         pos = np.array([
@@ -607,66 +711,95 @@ class InfectionEnv(gym.Env):
             "nearby_agents": nearby,
         }
 
-    def _get_partial_view(self, agent: BaseAgent) -> np.ndarray:
-        """Genera vista parcial del agente."""
-        view_size = self.config.view_size
-        half_width = view_size // 2
-        view = np.zeros((view_size, view_size, 3), dtype=np.uint8)
+    def _get_circular_view(self, agent: BaseAgent) -> np.ndarray:
+        """
+        Genera vista circular centrada en el agente.
 
-        for vy in range(view_size):
-            for vx in range(view_size):
-                rel_x = vx - half_width
-                forward_dist = (view_size - 1) - vy
+        La vista es un cuadrado de (2*radius+1) x (2*radius+1) con el agente en el centro.
+        No depende de la dirección del agente (visión 360°).
 
-                world_dx, world_dy = self._rotate_coords_forward(rel_x, forward_dist, agent.direction)
-                world_x = agent.x + world_dx
-                world_y = agent.y + world_dy
+        Canales:
+            0: Tipo de celda (0=vacío, 1=bloqueado, 2=sano, 3=infectado, 4=self)
+            1: Distancia Manhattan normalizada (para depth perception)
+        """
+        radius = self.config.view_radius
+        size = radius * 2 + 1  # 15x15 con radius=7
+        view = np.zeros((size, size, 2), dtype=np.uint8)
 
-                cell_type = self._get_cell_type(world_x, world_y, agent.id)
-                view[vy, vx, 0] = cell_type
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                # Coordenadas en la vista (0 a size-1)
+                vy = dy + radius
+                vx = dx + radius
 
-                other_agent = self.agents.get_agent_at((world_x, world_y))
-                if other_agent and other_agent.id != agent.id:
-                    view[vy, vx, 1] = int(other_agent.direction)
-                else:
-                    view[vy, vx, 1] = 4
+                # Coordenadas en el mundo
+                world_x = agent.x + dx
+                world_y = agent.y + dy
 
-                dist = abs(rel_x) + forward_dist
-                view[vy, vx, 2] = min(255, int(dist * 25))
+                # Canal 0: tipo de celda
+                view[vy, vx, 0] = self._get_cell_type(world_x, world_y, agent.id)
+
+                # Canal 1: distancia Manhattan normalizada (0-255)
+                dist = abs(dx) + abs(dy)
+                max_dist = radius * 2  # Máxima distancia en la vista
+                view[vy, vx, 1] = min(255, int(dist * (255 / max_dist)))
 
         return view
 
     def _get_cell_type(self, x: int, y: int, observer_id: int) -> int:
         """
-        Tipo de celda: 0=vacío, 1=muro, 2=obstáculo, 3=sano, 4=infectado, 5=self
+        Tipo de celda simplificado:
+            0 = vacío
+            1 = bloqueado (muro u obstáculo)
+            2 = agente sano
+            3 = agente infectado
+            4 = self (el observador)
         """
+        # Fuera del mapa = bloqueado
         if x < 0 or x >= self.width or y < 0 or y >= self.height:
             return 1
 
-        if self.grid[y, x] == CellType.WALL.value:
+        # Muro u obstáculo = bloqueado (unificados)
+        if self.grid[y, x] in (CellType.WALL.value, CellType.OBSTACLE.value):
             return 1
-        if self.grid[y, x] == CellType.OBSTACLE.value:
-            return 2
 
+        # Verificar agentes
         other_agent = self.agents.get_agent_at((x, y))
         if other_agent:
             if other_agent.id == observer_id:
-                return 5
+                return 4  # Self
             elif other_agent.is_infected:
-                return 4
+                return 3  # Infectado
             else:
-                return 3
+                return 2  # Sano
 
-        return 0
+        return 0  # Vacío
 
     def _get_nearby_agents_info(self, agent: BaseAgent) -> np.ndarray:
-        """Información de agentes cercanos."""
+        """
+        Información de agentes cercanos.
+
+        Si el agente es infectado y tiene visión global, prioriza mostrar
+        TODOS los healthy agents (para que sepa dónde están todos).
+        """
         max_agents = self.config.max_nearby_agents
         info = np.zeros((max_agents, 4), dtype=np.float32)
         max_dist = self.width + self.height
 
         others = [(a, agent.distance_to(a)) for a in self.agents if a.id != agent.id]
-        others.sort(key=lambda x: x[1])
+
+        # Si es infectado con visión global, priorizar healthy agents
+        if agent.is_infected and self.config.infected_global_vision:
+            # Separar healthy y otros infected
+            healthy = [(a, d) for a, d in others if not a.is_infected]
+            infected = [(a, d) for a, d in others if a.is_infected]
+            # Ordenar cada grupo por distancia
+            healthy.sort(key=lambda x: x[1])
+            infected.sort(key=lambda x: x[1])
+            # Priorizar healthy (el infectado necesita saber dónde están TODOS)
+            others = healthy + infected
+        else:
+            others.sort(key=lambda x: x[1])
 
         for i, (other, dist) in enumerate(others[:max_agents]):
             rel_x = (other.x - agent.x) / self.width

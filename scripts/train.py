@@ -8,6 +8,7 @@ Uso:
     python scripts/train.py
     python scripts/train.py --output-dir models/run1
     python scripts/train.py --start-phase 2
+    python scripts/train.py --render  # Con visualizacion en evaluaciones
 
 Fases del Curriculum:
     - Fase 1: MAP_LVL1 (20x20), 300k timesteps por rol
@@ -16,7 +17,11 @@ Fases del Curriculum:
 
 Ciclo de Refinamiento (Self-Play):
     - 4 iteraciones en MAP_LVL3
-    - 200k timesteps por rol por iteración
+    - 200k timesteps por rol por iteracion
+
+Visualizacion (--render):
+    Durante las evaluaciones entre fases se muestra una ventana pygame.
+    Controles: 1-5 velocidad, SPACE pausar, Q/ESC saltar evaluacion.
 """
 
 import sys
@@ -36,7 +41,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 
 from src.maps import MAP_LVL1, MAP_LVL2, MAP_LVL3
-from src.envs import InfectionEnv, EnvConfig
+from src.envs import InfectionEnv, EnvConfig, RewardConfig, RewardPreset
 from src.envs.wrappers import make_infection_env, make_vec_env_parameter_sharing
 
 
@@ -51,53 +56,76 @@ class PhaseConfig:
     map_data: str
     num_healthy: int
     num_infected: int
-    timesteps: int  # Timesteps para ambos roles
+    timesteps_healthy: int  # Timesteps para healthy
+    timesteps_infected: int  # Timesteps para infected (puede ser mayor)
     learning_rate: float = 3e-4
     n_steps: int = 2048
     batch_size: int = 64
     n_epochs: int = 10
     gamma: float = 0.99
     ent_coef: float = 0.01
+    reward_preset: RewardPreset = RewardPreset.DENSE
 
     @property
     def num_agents(self) -> int:
         return self.num_healthy + self.num_infected
 
+    @property
+    def reward_config(self) -> RewardConfig:
+        """Retorna la configuracion de rewards para esta fase."""
+        return RewardConfig.from_preset(self.reward_preset)
 
-# Curriculum de 3 fases
+
+# Curriculum de 3 fases con rewards progresivos
+# NOTA: Los infected reciben 1.5x mas timesteps porque:
+#   1. Estan en desventaja numerica (2 vs 8)
+#   2. Necesitan aprender a coordinar para cazar
+#   3. Los healthy aprenden a huir muy rapido
 CURRICULUM_PHASES: List[PhaseConfig] = [
     PhaseConfig(
         phase_id=1,
         map_data=MAP_LVL1,
         num_healthy=4,
         num_infected=1,
-        timesteps=300_000,
+        timesteps_healthy=300_000,
+        timesteps_infected=450_000,  # 1.5x mas para infected
         learning_rate=5e-4,
         ent_coef=0.02,
+        reward_preset=RewardPreset.SPARSE,  # Approach bonus incluido desde v2
     ),
     PhaseConfig(
         phase_id=2,
         map_data=MAP_LVL2,
         num_healthy=6,
         num_infected=2,
-        timesteps=500_000,
+        timesteps_healthy=500_000,
+        timesteps_infected=750_000,  # 1.5x mas para infected
         learning_rate=4e-4,
         ent_coef=0.015,
+        reward_preset=RewardPreset.INTERMEDIATE,
     ),
     PhaseConfig(
         phase_id=3,
         map_data=MAP_LVL3,
         num_healthy=8,
         num_infected=2,
-        timesteps=700_000,
+        timesteps_healthy=700_000,
+        timesteps_infected=1_000_000,  # ~1.4x mas para infected
         learning_rate=3e-4,
         ent_coef=0.01,
+        reward_preset=RewardPreset.DENSE,
     ),
 ]
 
-# Configuracion del ciclo de refinamiento
-REFINEMENT_ITERATIONS = 4
-REFINEMENT_TIMESTEPS = 200_000
+# Configuracion del ciclo de refinamiento (legacy - mantenido por compatibilidad)
+REFINEMENT_ITERATIONS = 5
+REFINEMENT_TIMESTEPS_HEALTHY = 200_000
+REFINEMENT_TIMESTEPS_INFECTED = 300_000
+
+# Configuracion del refinamiento ADAPTATIVO (entrenar al peor)
+ADAPTIVE_REFINEMENT_CYCLES = 10  # 10 ciclos de evaluacion + entrenamiento
+ADAPTIVE_REFINEMENT_TIMESTEPS = 200_000  # 200k steps por ciclo
+ADAPTIVE_WIN_RATE_THRESHOLD = 0.60  # 60% para considerar "claramente mejor"
 
 
 # ============================================================================
@@ -140,8 +168,18 @@ def evaluate_models(
     n_episodes: int = 20,
     max_steps: int = 500,
     seed: int = 42,
+    render: bool = False,
+    renderer: Optional['EvaluationRenderer'] = None,
+    phase_id: int = 0,
 ) -> Dict[str, float]:
-    """Evalua el rendimiento de los modelos."""
+    """
+    Evalua el rendimiento de los modelos.
+
+    Args:
+        render: Si True, visualiza la evaluacion en tiempo real
+        renderer: Instancia de EvaluationRenderer para visualizacion
+        phase_id: ID de la fase actual (para mostrar en panel)
+    """
     config = EnvConfig(
         map_data=map_data,
         num_agents=num_healthy + num_infected,
@@ -150,6 +188,10 @@ def evaluate_models(
         seed=seed,
     )
     env = InfectionEnv(config)
+
+    # Configurar renderer si esta activado
+    if render and renderer is not None:
+        renderer.set_env(env)
 
     results = {
         "episodes": n_episodes,
@@ -160,12 +202,21 @@ def evaluate_models(
         "infected_wins": 0,
     }
 
+    skip_all = False
+
     for ep in range(n_episodes):
+        if skip_all:
+            break
+
         env.reset(seed=seed + ep)
         done = False
         step_count = 0
         initial_healthy = env.num_healthy
         results["total_healthy_start"] += initial_healthy
+
+        # Configurar contexto del renderer para este episodio
+        if render and renderer is not None:
+            renderer.set_context(phase_id, ep + 1, n_episodes)
 
         while not done and step_count < max_steps:
             actions = {}
@@ -180,6 +231,17 @@ def evaluate_models(
 
             env.step_all(actions)
             step_count += 1
+
+            # Renderizar si esta activado
+            if render and renderer is not None:
+                if not renderer.handle_events():
+                    # Usuario pidio saltar
+                    if renderer.skip_requested:
+                        skip_all = True
+                    break
+
+                renderer.render_frame(step_count, env.num_healthy, env.num_infected)
+                renderer.wait_frame()
 
             if env.num_healthy == 0:
                 done = True
@@ -235,11 +297,13 @@ class CurriculumTrainer:
         seed: int = 42,
         n_envs: int = 4,
         verbose: int = 1,
+        render: bool = False,
     ):
         self.output_dir = Path(output_dir)
         self.seed = seed
         self.n_envs = n_envs
         self.verbose = verbose
+        self.render = render
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (self.output_dir / "checkpoints").mkdir(exist_ok=True)
@@ -247,6 +311,7 @@ class CurriculumTrainer:
         self.healthy_model: Optional[PPO] = None
         self.infected_model: Optional[PPO] = None
         self.training_log: List[Dict] = []
+        self.renderer = None  # Se inicializa cuando se necesita
 
     def _log(self, message: str):
         if self.verbose > 0:
@@ -258,12 +323,38 @@ class CurriculumTrainer:
         with open(log_path, "w") as f:
             json.dump(self.training_log, f, indent=2)
 
+    def _init_renderer(self, phase: PhaseConfig):
+        """Inicializa el renderer para visualizacion."""
+        from src.utils.evaluation_renderer import EvaluationRenderer
+
+        # Crear env temporal para obtener dimensiones del mapa
+        temp_config = EnvConfig(
+            map_data=phase.map_data,
+            num_agents=phase.num_agents,
+            initial_infected=phase.num_infected,
+        )
+        temp_env = InfectionEnv(temp_config)
+        temp_env.reset()
+
+        # Crear renderer con las dimensiones del mapa
+        self.renderer = EvaluationRenderer(
+            width=temp_env.width,
+            height=temp_env.height,
+        )
+
+        if not self.renderer.init_pygame():
+            self._log("  Warning: pygame no disponible, visualizacion desactivada")
+            self.render = False
+            self.renderer = None
+
     def train_phase(self, phase: PhaseConfig) -> Dict:
         """Entrena una fase completa del curriculum."""
         self._log("=" * 60)
         self._log(f"FASE {phase.phase_id}")
         self._log(f"  Agentes: {phase.num_healthy} healthy, {phase.num_infected} infected")
-        self._log(f"  Timesteps: {phase.timesteps:,} por rol")
+        self._log(f"  Timesteps healthy: {phase.timesteps_healthy:,}")
+        self._log(f"  Timesteps infected: {phase.timesteps_infected:,}")
+        self._log(f"  Rewards: {phase.reward_preset.value.upper()}")
         self._log("=" * 60)
 
         phase_start = time.time()
@@ -271,33 +362,42 @@ class CurriculumTrainer:
             "phase_id": phase.phase_id,
             "num_healthy": phase.num_healthy,
             "num_infected": phase.num_infected,
-            "timesteps": phase.timesteps,
+            "timesteps_healthy": phase.timesteps_healthy,
+            "timesteps_infected": phase.timesteps_infected,
         }
 
-        # Entrenar Healthy
-        self._log(f"\n--- Entrenando HEALTHY (Phase {phase.phase_id}) ---")
-        self._train_role(
-            phase=phase,
-            role="healthy",
-            opponent_model=self.infected_model,
-        )
-        healthy_path = self.output_dir / f"phase{phase.phase_id}_healthy.zip"
-        self.healthy_model.save(healthy_path)
-        self._log(f"  Modelo guardado: {healthy_path}")
-
-        # Entrenar Infected
-        self._log(f"\n--- Entrenando INFECTED (Phase {phase.phase_id}) ---")
+        # IMPORTANTE: Entrenar INFECTED primero para que tengan ventaja inicial
+        # Los infected estan en desventaja numerica, asi que les damos head start
+        self._log(f"\n--- Entrenando INFECTED primero (Phase {phase.phase_id}) ---")
         self._train_role(
             phase=phase,
             role="infected",
             opponent_model=self.healthy_model,
+            timesteps=phase.timesteps_infected,
         )
         infected_path = self.output_dir / f"phase{phase.phase_id}_infected.zip"
         self.infected_model.save(infected_path)
         self._log(f"  Modelo guardado: {infected_path}")
 
+        # Entrenar Healthy contra infected ya entrenado
+        self._log(f"\n--- Entrenando HEALTHY (Phase {phase.phase_id}) ---")
+        self._train_role(
+            phase=phase,
+            role="healthy",
+            opponent_model=self.infected_model,
+            timesteps=phase.timesteps_healthy,
+        )
+        healthy_path = self.output_dir / f"phase{phase.phase_id}_healthy.zip"
+        self.healthy_model.save(healthy_path)
+        self._log(f"  Modelo guardado: {healthy_path}")
+
         # Evaluar
         self._log(f"\n--- Evaluando Phase {phase.phase_id} ---")
+
+        # Inicializar renderer si es necesario
+        if self.render and self.renderer is None:
+            self._init_renderer(phase)
+
         eval_results = evaluate_models(
             healthy_model=self.healthy_model,
             infected_model=self.infected_model,
@@ -306,6 +406,9 @@ class CurriculumTrainer:
             num_infected=phase.num_infected,
             n_episodes=30,
             seed=self.seed + 2000,
+            render=self.render,
+            renderer=self.renderer,
+            phase_id=phase.phase_id,
         )
 
         phase_results["evaluation"] = eval_results
@@ -327,6 +430,7 @@ class CurriculumTrainer:
         phase: PhaseConfig,
         role: str,
         opponent_model: Optional[PPO],
+        timesteps: int,
     ):
         """Entrena un rol especifico."""
         vec_env = make_vec_env_parameter_sharing(
@@ -340,6 +444,7 @@ class CurriculumTrainer:
             opponent_deterministic=True,
             max_steps=500,
             vec_env_cls="dummy",
+            reward_config=phase.reward_config,
         )
 
         model_attr = "healthy_model" if role == "healthy" else "infected_model"
@@ -376,7 +481,7 @@ class CurriculumTrainer:
         )
 
         model.learn(
-            total_timesteps=phase.timesteps,
+            total_timesteps=timesteps,
             callback=callback,
             reset_num_timesteps=False,
             progress_bar=True,
@@ -389,7 +494,9 @@ class CurriculumTrainer:
         self._log("\n" + "=" * 60)
         self._log("CICLO DE REFINAMIENTO (Self-Play)")
         self._log(f"  Iteraciones: {REFINEMENT_ITERATIONS}")
-        self._log(f"  Timesteps por rol: {REFINEMENT_TIMESTEPS:,}")
+        self._log(f"  Timesteps healthy: {REFINEMENT_TIMESTEPS_HEALTHY:,}")
+        self._log(f"  Timesteps infected: {REFINEMENT_TIMESTEPS_INFECTED:,}")
+        self._log(f"  Rewards: DENSE (sistema completo)")
         self._log("=" * 60)
 
         refinement_results = []
@@ -400,7 +507,8 @@ class CurriculumTrainer:
             map_data=MAP_LVL3,
             num_healthy=8,
             num_infected=2,
-            timesteps=REFINEMENT_TIMESTEPS,
+            timesteps_healthy=REFINEMENT_TIMESTEPS_HEALTHY,
+            timesteps_infected=REFINEMENT_TIMESTEPS_INFECTED,
             learning_rate=2e-4,
             ent_coef=0.005,
         )
@@ -409,21 +517,23 @@ class CurriculumTrainer:
             self._log(f"\n--- Refinamiento Iteracion {iteration}/{REFINEMENT_ITERATIONS} ---")
             iter_start = time.time()
 
-            # Entrenar Healthy contra Infected actual
-            self._log(f"  Entrenando HEALTHY...")
+            # IMPORTANTE: Entrenar INFECTED primero en refinamiento tambien
+            self._log(f"  Entrenando INFECTED primero...")
             refinement_phase.phase_id = 100 + iteration
-            self._train_role(
-                phase=refinement_phase,
-                role="healthy",
-                opponent_model=self.infected_model,
-            )
-
-            # Entrenar Infected contra Healthy actualizado
-            self._log(f"  Entrenando INFECTED...")
             self._train_role(
                 phase=refinement_phase,
                 role="infected",
                 opponent_model=self.healthy_model,
+                timesteps=REFINEMENT_TIMESTEPS_INFECTED,
+            )
+
+            # Entrenar Healthy contra Infected actualizado
+            self._log(f"  Entrenando HEALTHY...")
+            self._train_role(
+                phase=refinement_phase,
+                role="healthy",
+                opponent_model=self.infected_model,
+                timesteps=REFINEMENT_TIMESTEPS_HEALTHY,
             )
 
             # Guardar checkpoints
@@ -433,6 +543,10 @@ class CurriculumTrainer:
             self.infected_model.save(infected_path)
 
             # Evaluar
+            # Inicializar renderer si es necesario (puede ser diferente mapa)
+            if self.render and self.renderer is None:
+                self._init_renderer(refinement_phase)
+
             eval_results = evaluate_models(
                 healthy_model=self.healthy_model,
                 infected_model=self.infected_model,
@@ -441,6 +555,9 @@ class CurriculumTrainer:
                 num_infected=2,
                 n_episodes=20,
                 seed=self.seed + 3000 + iteration,
+                render=self.render,
+                renderer=self.renderer,
+                phase_id=100 + iteration,
             )
 
             iter_results = {
@@ -460,6 +577,167 @@ class CurriculumTrainer:
 
         return refinement_results
 
+    def run_adaptive_refinement(self) -> List[Dict]:
+        """
+        Ciclo de refinamiento ADAPTATIVO.
+
+        En cada ciclo:
+        1. Evaluar modelos actuales
+        2. Determinar quién necesita entrenamiento (el que pierde más)
+        3. Entrenar SOLO al modelo más débil
+        4. Repetir hasta completar todos los ciclos
+
+        Criterio:
+        - Si infected_win_rate > 60% → entrenar healthy
+        - Si healthy_win_rate > 60% → entrenar infected
+        - Si está equilibrado → entrenar infected (tienen desventaja numérica)
+        """
+        self._log("\n" + "=" * 60)
+        self._log("REFINAMIENTO ADAPTATIVO (Entrenar al Peor)")
+        self._log(f"  Ciclos: {ADAPTIVE_REFINEMENT_CYCLES}")
+        self._log(f"  Timesteps por ciclo: {ADAPTIVE_REFINEMENT_TIMESTEPS:,}")
+        self._log(f"  Umbral de dominancia: {ADAPTIVE_WIN_RATE_THRESHOLD:.0%}")
+        self._log("=" * 60)
+
+        results = []
+
+        # Configuracion para refinamiento (usa MAP_LVL3)
+        refinement_phase = PhaseConfig(
+            phase_id=200,  # ID especial para refinamiento adaptativo
+            map_data=MAP_LVL3,
+            num_healthy=8,
+            num_infected=2,
+            timesteps_healthy=ADAPTIVE_REFINEMENT_TIMESTEPS,
+            timesteps_infected=ADAPTIVE_REFINEMENT_TIMESTEPS,
+            learning_rate=2e-4,
+            ent_coef=0.005,
+            reward_preset=RewardPreset.DENSE,
+        )
+
+        # Inicializar renderer si es necesario
+        if self.render and self.renderer is None:
+            self._init_renderer(refinement_phase)
+
+        for cycle in range(1, ADAPTIVE_REFINEMENT_CYCLES + 1):
+            self._log(f"\n{'─' * 50}")
+            self._log(f"CICLO {cycle}/{ADAPTIVE_REFINEMENT_CYCLES}")
+            self._log(f"{'─' * 50}")
+
+            cycle_start = time.time()
+
+            # 1. Evaluar estado actual ANTES de entrenar
+            self._log("  Evaluando estado actual...")
+            pre_eval = evaluate_models(
+                healthy_model=self.healthy_model,
+                infected_model=self.infected_model,
+                map_data=MAP_LVL3,
+                num_healthy=8,
+                num_infected=2,
+                n_episodes=20,
+                seed=self.seed + 4000 + cycle,
+                render=self.render,
+                renderer=self.renderer,
+                phase_id=200 + cycle,
+            )
+
+            healthy_wr = pre_eval['healthy_win_rate']
+            infected_wr = pre_eval['infected_win_rate']
+
+            self._log(f"  Healthy Win Rate: {healthy_wr:.1%}")
+            self._log(f"  Infected Win Rate: {infected_wr:.1%}")
+
+            # 2. Determinar quién entrenar
+            if infected_wr > ADAPTIVE_WIN_RATE_THRESHOLD:
+                # Infected dominan → entrenar healthy
+                role_to_train = "healthy"
+                reason = f"Infected dominan ({infected_wr:.0%} > {ADAPTIVE_WIN_RATE_THRESHOLD:.0%})"
+            elif healthy_wr > ADAPTIVE_WIN_RATE_THRESHOLD:
+                # Healthy dominan → entrenar infected
+                role_to_train = "infected"
+                reason = f"Healthy dominan ({healthy_wr:.0%} > {ADAPTIVE_WIN_RATE_THRESHOLD:.0%})"
+            else:
+                # Equilibrado → entrenar infected (desventaja numérica)
+                role_to_train = "infected"
+                reason = f"Equilibrado ({healthy_wr:.0%}/{infected_wr:.0%}) → infected por defecto"
+
+            self._log(f"  Decisión: Entrenar {role_to_train.upper()}")
+            self._log(f"  Razón: {reason}")
+
+            # 3. Entrenar solo ese rol
+            self._log(f"  Entrenando {role_to_train.upper()} ({ADAPTIVE_REFINEMENT_TIMESTEPS:,} steps)...")
+
+            if role_to_train == "infected":
+                opponent_model = self.healthy_model
+            else:
+                opponent_model = self.infected_model
+
+            refinement_phase.phase_id = 200 + cycle
+            self._train_role(
+                phase=refinement_phase,
+                role=role_to_train,
+                opponent_model=opponent_model,
+                timesteps=ADAPTIVE_REFINEMENT_TIMESTEPS,
+            )
+
+            # 4. Guardar checkpoints
+            healthy_path = self.output_dir / "checkpoints" / f"adaptive_{cycle}_healthy.zip"
+            infected_path = self.output_dir / "checkpoints" / f"adaptive_{cycle}_infected.zip"
+            self.healthy_model.save(healthy_path)
+            self.infected_model.save(infected_path)
+
+            # 5. Registrar resultados del ciclo
+            cycle_time = time.time() - cycle_start
+            cycle_results = {
+                "cycle": cycle,
+                "pre_eval": {
+                    "healthy_win_rate": healthy_wr,
+                    "infected_win_rate": infected_wr,
+                    "avg_steps": pre_eval['avg_steps'],
+                },
+                "trained_role": role_to_train,
+                "reason": reason,
+                "timesteps": ADAPTIVE_REFINEMENT_TIMESTEPS,
+                "time": cycle_time,
+            }
+            results.append(cycle_results)
+
+            self._log(f"  Tiempo del ciclo: {cycle_time / 60:.1f} minutos")
+
+        # Evaluación final
+        self._log(f"\n{'─' * 50}")
+        self._log("EVALUACIÓN FINAL")
+        self._log(f"{'─' * 50}")
+
+        final_eval = evaluate_models(
+            healthy_model=self.healthy_model,
+            infected_model=self.infected_model,
+            map_data=MAP_LVL3,
+            num_healthy=8,
+            num_infected=2,
+            n_episodes=30,
+            seed=self.seed + 5000,
+            render=self.render,
+            renderer=self.renderer,
+            phase_id=299,
+        )
+
+        self._log(f"  Healthy Win Rate: {final_eval['healthy_win_rate']:.1%}")
+        self._log(f"  Infected Win Rate: {final_eval['infected_win_rate']:.1%}")
+        self._log(f"  Avg Steps: {final_eval['avg_steps']:.1f}")
+
+        # Resumen de entrenamientos
+        infected_trained = sum(1 for r in results if r['trained_role'] == 'infected')
+        healthy_trained = sum(1 for r in results if r['trained_role'] == 'healthy')
+        self._log(f"\n  Resumen: Infected entrenado {infected_trained}x, Healthy entrenado {healthy_trained}x")
+
+        self.training_log.append({
+            "adaptive_refinement": results,
+            "final_evaluation": final_eval,
+        })
+        self._save_log()
+
+        return results
+
     def run(self, start_phase: int = 1) -> bool:
         """Ejecuta el curriculum completo + refinamiento."""
         self._log("=" * 60)
@@ -477,8 +755,8 @@ class CurriculumTrainer:
                 continue
             self.train_phase(phase)
 
-        # Ejecutar ciclo de refinamiento
-        self.run_refinement()
+        # Ejecutar ciclo de refinamiento ADAPTATIVO
+        self.run_adaptive_refinement()
 
         # Guardar modelos finales
         final_healthy = self.output_dir / "healthy_final.zip"
@@ -538,6 +816,8 @@ def main():
                         help="Semilla para reproducibilidad")
     parser.add_argument("--verbose", type=int, default=1,
                         help="Nivel de verbosidad (0-2)")
+    parser.add_argument("--render", action="store_true",
+                        help="Visualizar evaluaciones en tiempo real con pygame")
 
     args = parser.parse_args()
 
@@ -546,6 +826,7 @@ def main():
         seed=args.seed,
         n_envs=args.n_envs,
         verbose=args.verbose,
+        render=args.render,
     )
 
     if args.continue_from:

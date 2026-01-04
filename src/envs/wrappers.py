@@ -16,6 +16,7 @@ import gymnasium as gym
 from gymnasium import spaces
 
 from .environment import InfectionEnv, EnvConfig
+from .reward_config import RewardConfig
 from ..agents import BaseAgent, HealthyAgent, InfectedAgent, Direction
 
 
@@ -26,9 +27,10 @@ class FlattenObservationWrapper(gym.ObservationWrapper):
         super().__init__(env)
 
         config = env.unwrapped.config
-        view_size = config.view_size
+        view_size = config.view_size  # 15 con radius=7
 
-        image_size = view_size * view_size * 3
+        # Vista circular: 2 canales (tipo + distancia)
+        image_size = view_size * view_size * 2
         direction_size = 4
         state_size = 2
         position_size = 2
@@ -387,7 +389,10 @@ def make_infection_env(
     opponent_model: Optional[Union[str, Path, Any]] = None,
     opponent_deterministic: bool = True,
     max_steps: int = 1000,
-    view_size: int = 11,
+    view_radius: int = 7,
+    reward_config: Optional[RewardConfig] = None,
+    infected_speed: int = 1,
+    infected_global_vision: bool = False,
 ) -> gym.Env:
     """
     Crea un entorno de infección configurado.
@@ -405,7 +410,10 @@ def make_infection_env(
         opponent_model: Modelo para agentes oponentes
         opponent_deterministic: Si usar predicciones determinísticas para oponente
         max_steps: Pasos máximos por episodio
-        view_size: Tamaño del campo de visión
+        view_radius: Radio de visión circular (default=7, diámetro=15)
+        reward_config: Configuración de rewards progresiva (opcional)
+        infected_speed: Velocidad de infectados (celdas por movimiento, default=1)
+        infected_global_vision: Si infectados ven todo el mapa (default=False)
 
     Returns:
         Entorno configurado compatible con SB3
@@ -416,13 +424,18 @@ def make_infection_env(
         "render_mode": render_mode,
         "seed": seed,
         "max_steps": max_steps,
-        "view_size": view_size,
+        "view_radius": view_radius,
+        "infected_speed": infected_speed,
+        "infected_global_vision": infected_global_vision,
     }
 
     if map_data is not None:
         config_kwargs["map_data"] = map_data
     elif map_file is not None:
         config_kwargs["map_file"] = map_file
+
+    if reward_config is not None:
+        config_kwargs["reward_config"] = reward_config
 
     config = EnvConfig(**config_kwargs)
 
@@ -451,6 +464,9 @@ def make_vec_env_parameter_sharing(
     opponent_deterministic: bool = True,
     max_steps: int = 1000,
     vec_env_cls: str = "subproc",
+    reward_config: Optional[RewardConfig] = None,
+    infected_speed: int = 1,
+    infected_global_vision: bool = False,
 ) -> Any:
     """
     Crea un VecEnv con Parameter Sharing.
@@ -470,6 +486,9 @@ def make_vec_env_parameter_sharing(
         opponent_deterministic: Si usar predicciones determinísticas
         max_steps: Pasos máximos
         vec_env_cls: Tipo de VecEnv ("subproc" o "dummy")
+        reward_config: Configuración de rewards progresiva (opcional)
+        infected_speed: Velocidad de infectados (celdas por movimiento, default=1)
+        infected_global_vision: Si infectados ven todo el mapa (default=False)
 
     Returns:
         VecEnv configurado
@@ -515,6 +534,9 @@ def make_vec_env_parameter_sharing(
                 opponent_deterministic=opponent_deterministic,
                 max_steps=max_steps,
                 flatten=True,
+                reward_config=reward_config,
+                infected_speed=infected_speed,
+                infected_global_vision=infected_global_vision,
             )
             return env
 

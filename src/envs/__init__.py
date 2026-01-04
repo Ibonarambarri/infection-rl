@@ -4,6 +4,7 @@ Infection Environment
 
 from .environment import InfectionEnv, EnvConfig
 from .map_generator import MapGenerator, CellType
+from .reward_config import RewardConfig, RewardPreset
 from .wrappers import (
     make_infection_env,
     make_vec_env_parameter_sharing,
@@ -17,6 +18,8 @@ __all__ = [
     "EnvConfig",
     "MapGenerator",
     "CellType",
+    "RewardConfig",
+    "RewardPreset",
     "make_infection_env",
     "make_vec_env_parameter_sharing",
     "SingleAgentWrapper",
