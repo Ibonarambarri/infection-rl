@@ -116,7 +116,7 @@ ADAPTIVE_TIMESTEPS = 300_000
 ADAPTIVE_THRESHOLD = 0.60
 
 # Ventajas para infectados (para balancear el juego)
-INFECTED_SPEED = 2  # Los infectados se mueven 2 celdas por acción
+INFECTED_SPEED = 1  # Misma velocidad que healthy
 INFECTED_GLOBAL_VISION = True  # Los infectados ven a todos los healthy
 
 
@@ -483,62 +483,120 @@ class PingPongTrainer:
 
     def train_phase_pingpong(self, phase: PhaseConfig) -> Dict:
         """
-        Entrena una fase usando ping-pong self-play.
+        Entrena una fase usando ADAPTIVE Self-Play.
 
-        Alterna entre entrenar infected y healthy cada ping_pong_interval steps.
+        Antes de cada ronda, evalúa el rendimiento de ambos bandos y entrena
+        SOLO al agente más débil para equilibrar la balanza.
+
+        Lógica:
+        - Si healthy_win_rate < 0.45: Entrena SOLO healthy
+        - Si infected_win_rate < 0.45: Entrena SOLO infected
+        - Si ambos entre 0.45-0.55: Entrena AMBOS (ping-pong clásico)
         """
         self._log("=" * 60)
         self._log(f"FASE {phase.phase_id} ({phase.reward_config.preset.value.upper()} REWARDS)")
         self._log(f"  Mapa: {phase.num_agents} agentes ({phase.num_healthy}H vs {phase.num_infected}I)")
         self._log(f"  Max steps: {phase.max_steps}")
         self._log(f"  Total timesteps: {phase.total_timesteps:,}")
-        self._log(f"  Ping-pong interval: {phase.ping_pong_interval:,}")
+        self._log(f"  Adaptive interval: {phase.ping_pong_interval:,}")
         self._log("=" * 60)
 
         phase_start = time.time()
 
-        # Calcular número de rondas de ping-pong
+        # Calcular número de rondas
         timesteps_per_role = phase.total_timesteps // 2
         num_rounds = timesteps_per_role // phase.ping_pong_interval
 
-        self._log(f"\nPing-Pong: {num_rounds} rondas de {phase.ping_pong_interval:,} steps cada una")
+        self._log(f"\nAdaptive Self-Play: {num_rounds} rondas de {phase.ping_pong_interval:,} steps")
+
+        # Umbrales para decisión adaptativa
+        WEAK_THRESHOLD = 0.45  # Por debajo = muy débil, necesita entrenamiento
+        BALANCED_MIN = 0.45
+        BALANCED_MAX = 0.55
 
         for round_num in range(1, num_rounds + 1):
-            self._log(f"\n--- Ronda {round_num}/{num_rounds} ---")
+            self._log(f"\n{'─' * 50}")
+            self._log(f"RONDA {round_num}/{num_rounds}")
+            self._log(f"{'─' * 50}")
 
-            # Entrenar INFECTED (contra healthy actual o heurística)
-            infected_opponent = self.healthy_model  # None si es primera ronda
-            self._log(f"  Training INFECTED... (vs {'Model' if infected_opponent else 'Heuristic'})")
+            # === EVALUACIÓN RÁPIDA PARA DECIDIR QUIÉN ENTRENAR ===
+            if self.healthy_model is not None and self.infected_model is not None:
+                self._log("  Evaluando balance actual...")
+                quick_eval = evaluate_models(
+                    healthy_model=self.healthy_model,
+                    infected_model=self.infected_model,
+                    map_data=phase.map_data,
+                    num_healthy=phase.num_healthy,
+                    num_infected=phase.num_infected,
+                    reward_config=phase.reward_config,
+                    n_episodes=20,  # Evaluación rápida
+                    max_steps=phase.max_steps,
+                    seed=self.seed + 3000 + round_num,
+                    render=False,
+                    deterministic=True,
+                )
+                healthy_wr = quick_eval['healthy_win_rate']
+                infected_wr = quick_eval['infected_win_rate']
+                self._log(f"  Win Rates: Healthy={healthy_wr:.0%} | Infected={infected_wr:.0%}")
+            else:
+                # Primera ronda: no hay modelos todavía, entrenar ambos
+                healthy_wr = 0.5
+                infected_wr = 0.5
+                self._log("  Primera ronda: entrenando ambos agentes")
 
-            self._train_steps(
-                phase=phase,
-                role="infected",
-                opponent_model=infected_opponent,
-                timesteps=phase.ping_pong_interval,
-                round_num=round_num,
-            )
+            # === DECISIÓN ADAPTATIVA ===
+            if healthy_wr < WEAK_THRESHOLD:
+                # Healthy muy débil → entrenar SOLO healthy
+                train_healthy = True
+                train_infected = False
+                decision = f"HEALTHY débil ({healthy_wr:.0%}) → Entrenando SOLO Healthy"
+            elif infected_wr < WEAK_THRESHOLD:
+                # Infected muy débil → entrenar SOLO infected
+                train_healthy = False
+                train_infected = True
+                decision = f"INFECTED débil ({infected_wr:.0%}) → Entrenando SOLO Infected"
+            else:
+                # Equilibrado → entrenar ambos
+                train_healthy = True
+                train_infected = True
+                decision = f"Equilibrado → Entrenando AMBOS"
 
-            # Entrenar HEALTHY (contra infected actualizado)
-            self._log(f"  Training HEALTHY... (vs Model)")
+            self._log(f"  Decisión: {decision}")
 
-            self._train_steps(
-                phase=phase,
-                role="healthy",
-                opponent_model=self.infected_model,
-                timesteps=phase.ping_pong_interval,
-                round_num=round_num,
-            )
+            # === ENTRENAMIENTO SEGÚN DECISIÓN ===
+            if train_infected:
+                infected_opponent = self.healthy_model
+                self._log(f"  Training INFECTED... (vs {'Model' if infected_opponent else 'Heuristic'})")
+                self._train_steps(
+                    phase=phase,
+                    role="infected",
+                    opponent_model=infected_opponent,
+                    timesteps=phase.ping_pong_interval,
+                    round_num=round_num,
+                )
 
-            # Guardar checkpoint cada ronda
-            self.infected_model.save(self.output_dir / "checkpoints" / f"phase{phase.phase_id}_r{round_num}_infected.zip")
-            self.healthy_model.save(self.output_dir / "checkpoints" / f"phase{phase.phase_id}_r{round_num}_healthy.zip")
+            if train_healthy:
+                self._log(f"  Training HEALTHY... (vs {'Model' if self.infected_model else 'Heuristic'})")
+                self._train_steps(
+                    phase=phase,
+                    role="healthy",
+                    opponent_model=self.infected_model,
+                    timesteps=phase.ping_pong_interval,
+                    round_num=round_num,
+                )
+
+            # === GUARDAR CHECKPOINTS ===
+            if self.infected_model is not None:
+                self.infected_model.save(self.output_dir / "checkpoints" / f"phase{phase.phase_id}_r{round_num}_infected.zip")
+            if self.healthy_model is not None:
+                self.healthy_model.save(self.output_dir / "checkpoints" / f"phase{phase.phase_id}_r{round_num}_healthy.zip")
 
         # Guardar modelos finales de la fase
         self.infected_model.save(self.output_dir / f"phase{phase.phase_id}_infected.zip")
         self.healthy_model.save(self.output_dir / f"phase{phase.phase_id}_healthy.zip")
 
-        # Evaluar
-        self._log(f"\n--- Evaluando Phase {phase.phase_id} ---")
+        # Evaluación final de la fase
+        self._log(f"\n--- Evaluación Final Phase {phase.phase_id} ---")
 
         if self.render and self.renderer is None:
             self._init_renderer(phase)
