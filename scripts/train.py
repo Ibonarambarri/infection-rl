@@ -163,9 +163,18 @@ class SimpleLoggingCallback(BaseCallback):
                 self.episode_lengths.append(length)
                 self.total_episodes += 1
 
-                # Victoria: reward positivo para infected o healthy
-                if reward > 0:
-                    self.wins += 1
+                # Victoria basada en supervivencia real, no en reward
+                # healthy_survived: número de agentes sanos que quedaron vivos
+                healthy_survived = episode_info.get("healthy_survived", 0)
+
+                if self.role.upper() == "HEALTHY":
+                    # Healthy gana si sobrevive (healthy_survived > 0)
+                    if healthy_survived > 0:
+                        self.wins += 1
+                else:
+                    # Infected gana si infecta a todos (healthy_survived == 0)
+                    if healthy_survived == 0:
+                        self.wins += 1
 
         # Imprimir cada log_freq steps
         if self.n_calls % self.log_freq == 0 and self.n_calls > 0:
@@ -278,8 +287,8 @@ def evaluate_models(
         state[raw_obs["state"]] = 1.0
         parts.append(state)
 
-        # Position normalizada (dividir por 100.0 como en el wrapper)
-        position = raw_obs["position"].astype(np.float32) / 100.0
+        # Position (ya viene normalizada del environment: x/width, y/height)
+        position = raw_obs["position"].astype(np.float32)
         parts.append(position)
 
         # Nearby agents (flatten)

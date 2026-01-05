@@ -812,11 +812,25 @@ class InfectionEnv(gym.Env):
 
     def _get_info(self) -> Dict[str, Any]:
         """Información adicional del estado."""
+        num_healthy = self.agents.num_healthy
+        num_infected = self.agents.num_infected
+
+        # Calcular métricas de victoria para el callback
+        # healthy_survived: 1 si quedan sanos vivos, 0 si no
+        # infected_won: 1 si todos fueron infectados, 0 si no
+        healthy_survived = 1 if num_healthy > 0 else 0
+        infected_won = 1 if num_healthy == 0 else 0
+
         return {
             "step": self.current_step,
-            "num_healthy": self.agents.num_healthy,
-            "num_infected": self.agents.num_infected,
+            "num_healthy": num_healthy,
+            "num_infected": num_infected,
+            "healthy_survived": healthy_survived,
+            "infected_won": infected_won,
             "infection_events": len(self.infection_events),
+            "infection_count": len(self.infection_events),
+            "survival_rate": num_healthy / max(1, num_healthy + num_infected - self.config.initial_infected),
+            "infected_percentage": num_infected / max(1, self.config.num_agents),
             "agents": {a.id: a.to_dict() for a in self.agents},
         }
 

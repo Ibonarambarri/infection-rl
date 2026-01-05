@@ -129,8 +129,8 @@ class DictObservationWrapper(gym.ObservationWrapper):
         state[obs["state"]] = 1.0
         parts.append(state)
 
-        # Position normalizada
-        position = obs["position"].astype(np.float32) / 100.0  # Normalizar
+        # Position (ya viene normalizada del environment: x/width, y/height)
+        position = obs["position"].astype(np.float32)
         parts.append(position)
 
         # Nearby agents
@@ -374,8 +374,8 @@ class SingleAgentWrapper(gym.Wrapper):
             state[raw_obs["state"]] = 1.0
             parts.append(state)
 
-            # Position normalizada (dividir por 100.0 como en DictObservationWrapper)
-            position = raw_obs["position"].astype(np.float32) / 100.0
+            # Position (ya viene normalizada del environment: x/width, y/height)
+            position = raw_obs["position"].astype(np.float32)
             parts.append(position)
 
             # Nearby agents (flatten)
