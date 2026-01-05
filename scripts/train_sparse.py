@@ -431,11 +431,15 @@ class SparseTrainer:
             log_freq=50000,
         )
 
+        # Nombre único para TensorBoard: phase1_infected, phase2_healthy, etc.
+        tb_log_name = f"phase{phase.phase_id}_{role}"
+
         model.learn(
             total_timesteps=timesteps,
             callback=callback,
             reset_num_timesteps=False,
             progress_bar=True,
+            tb_log_name=tb_log_name,
         )
 
         vec_env.close()
