@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """
-Entrenamiento con Rewards Sparse + Curriculum
-=============================================
-Solo recompensa victoria/derrota, pero con curriculum progresivo para
-facilitar el aprendizaje.
-
-Filosofia:
-- Infected: +10 si ganan (infectan a todos), 0 si no
-- Healthy: +10 si sobreviven hasta max_steps, 0 si no
-- Sin rewards intermedios (no approach, progress, survive_step, etc.)
-- Curriculum: mapas pequeños → grandes para que infected aprendan a ganar
+Entrenamiento con Curriculum Learning + Ping-Pong Self-Play
+===========================================================
+Sistema de entrenamiento que usa:
+- Curriculum: DENSE rewards (Fase 1) -> INTERMEDIATE (Fase 2) -> SPARSE (Fase 3)
+- Ping-Pong: Alternancia frecuente entre roles para evitar overfitting
+- Logs simples y limpios sin barras de progreso complejas
 
 Uso:
-    python scripts/train.py --output-dir models/sparse_v1
-    python scripts/train.py --output-dir models/sparse_v1 --render
+    python scripts/train.py --output-dir models/v1
+    python scripts/train.py --output-dir models/v1 --render
     python scripts/train.py --start-phase 2
 """
 
@@ -23,7 +19,7 @@ import argparse
 import json
 import time
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List, Dict
 import numpy as np
 
@@ -39,28 +35,23 @@ from src.envs.wrappers import make_vec_env_parameter_sharing, FlattenObservation
 
 
 # ============================================================================
-# Configuracion ULTRA-SPARSE
+# Configuracion de Rewards por Fase (Curriculum)
 # ============================================================================
 
-# Rewards: SOLO victoria/derrota - igual en TODAS las fases
-SPARSE_REWARDS = RewardConfig(
-    preset=RewardPreset.SPARSE,
-    # Healthy - gana si sobrevive, penalizado si es infectado
-    reward_survive_step=0.01,
-    reward_distance_bonus=0.0,
-    reward_infected_penalty=-10.0,  # Penalizacion por ser infectado
-    reward_not_moving_penalty=0.0,
-    reward_stuck_penalty=0.0,
-    reward_survive_episode=10.0,  # Reward por sobrevivir
-    # Infected - SOLO gana si infecta a todos
-    reward_infect_agent=0.0,
-    reward_approach_bonus=0.0,
-    reward_progress_bonus=0.0,
-    reward_no_progress_penalty=0.0,
-    reward_step_penalty=0.0,
-    reward_all_infected_bonus=10.0,  # UNICO reward para infected
-    reward_exploration=0.0,
-)
+def get_reward_config_for_phase(phase_id: int) -> RewardConfig:
+    """
+    Retorna la configuración de rewards según la fase del curriculum.
+
+    - Fase 1: DENSE (señales completas para aprender movimiento básico)
+    - Fase 2: INTERMEDIATE (reducción gradual de señales)
+    - Fase 3: SPARSE (solo victoria/derrota)
+    """
+    if phase_id == 1:
+        return RewardConfig.dense()
+    elif phase_id == 2:
+        return RewardConfig.intermediate()
+    else:  # Fase 3 y superiores
+        return RewardConfig.sparse()
 
 
 # ============================================================================
@@ -74,44 +65,48 @@ class PhaseConfig:
     map_data: str
     num_healthy: int
     num_infected: int
-    timesteps_infected: int  # Infected primero, mas timesteps
-    timesteps_healthy: int
+    total_timesteps: int  # Total para la fase (se divide en ping-pong)
     max_steps: int = 500
+    ping_pong_interval: int = 50_000  # Alternar cada 50k steps
 
     @property
     def num_agents(self) -> int:
         return self.num_healthy + self.num_infected
 
+    @property
+    def reward_config(self) -> RewardConfig:
+        return get_reward_config_for_phase(self.phase_id)
+
 
 # Curriculum progresivo: mapas pequeños → grandes
-# Balance 50/50 entre healthy e infected en todas las fases
+# Rewards: DENSE → INTERMEDIATE → SPARSE
 CURRICULUM_PHASES: List[PhaseConfig] = [
     PhaseConfig(
         phase_id=1,
         map_data=MAP_LVL1,  # 20x20
         num_healthy=3,
         num_infected=3,
-        timesteps_infected=500_000,
-        timesteps_healthy=500_000,
+        total_timesteps=1_000_000,  # 500k por rol
         max_steps=300,
+        ping_pong_interval=50_000,
     ),
     PhaseConfig(
         phase_id=2,
         map_data=MAP_LVL2,  # 30x30
         num_healthy=4,
         num_infected=4,
-        timesteps_infected=700_000,
-        timesteps_healthy=700_000,
+        total_timesteps=1_400_000,  # 700k por rol
         max_steps=400,
+        ping_pong_interval=50_000,
     ),
     PhaseConfig(
         phase_id=3,
         map_data=MAP_LVL3,  # 40x40
         num_healthy=5,
         num_infected=5,
-        timesteps_infected=1_000_000,
-        timesteps_healthy=1_000_000,
+        total_timesteps=2_000_000,  # 1M por rol
         max_steps=500,
+        ping_pong_interval=50_000,
     ),
 ]
 
@@ -126,25 +121,36 @@ INFECTED_GLOBAL_VISION = True  # Los infectados ven a todos los healthy
 
 
 # ============================================================================
-# Callbacks
+# Callback Simple de Logging
 # ============================================================================
 
-class SparseLoggingCallback(BaseCallback):
-    """Callback para logging durante entrenamiento sparse con TensorBoard."""
+class SimpleLoggingCallback(BaseCallback):
+    """
+    Callback de logging simple y limpio.
 
-    def __init__(self, phase_id: int, role: str, log_freq: int = 50000, verbose: int = 1):
+    Imprime cada log_freq steps:
+    [Phase X][Role] Step: N | Win Rate: XX% | Mean Reward: XX.X | FPS: XXX
+    """
+
+    def __init__(self, phase_id: int, role: str, log_freq: int = 10_000, verbose: int = 1):
         super().__init__(verbose)
         self.phase_id = phase_id
         self.role = role
         self.log_freq = log_freq
+
+        # Métricas
         self.episode_rewards = []
         self.episode_lengths = []
-        self.survival_rates = []
-        self.infected_percentages = []
-        self.infection_counts = []
         self.wins = 0
         self.total_episodes = 0
-        self.heartbeat_freq = 100000  # Print minimalista cada 100k steps
+
+        # Para calcular FPS
+        self.last_log_time = None
+        self.last_log_steps = 0
+
+    def _on_training_start(self) -> None:
+        self.last_log_time = time.time()
+        self.last_log_steps = 0
 
     def _on_step(self) -> bool:
         # Recopilar métricas de episodios completados
@@ -153,48 +159,58 @@ class SparseLoggingCallback(BaseCallback):
                 episode_info = info["episode"]
                 reward = episode_info.get("r", 0)
                 length = episode_info.get("l", 0)
-                survival_rate = episode_info.get("survival_rate", 0.0)
-                infected_pct = episode_info.get("infected_percentage", 0.0)
-                infection_count = episode_info.get("infection_count", 0)
 
                 self.episode_rewards.append(reward)
                 self.episode_lengths.append(length)
-                self.survival_rates.append(survival_rate)
-                self.infected_percentages.append(infected_pct)
-                self.infection_counts.append(infection_count)
                 self.total_episodes += 1
 
+                # Victoria: reward positivo para infected o healthy
                 if reward > 0:
                     self.wins += 1
 
-        # Registrar métricas en TensorBoard cada log_freq steps
-        if self.n_calls % self.log_freq == 0 and self.total_episodes > 0:
-            win_rate = self.wins / self.total_episodes
-
-            # Calcular métricas promedio recientes (últimos 100 episodios)
-            recent_rewards = self.episode_rewards[-100:] if self.episode_rewards else [0]
-            recent_lengths = self.episode_lengths[-100:] if self.episode_lengths else [0]
-            recent_survival = self.survival_rates[-100:] if self.survival_rates else [0]
-            recent_infected_pct = self.infected_percentages[-100:] if self.infected_percentages else [0]
-            recent_infections = self.infection_counts[-100:] if self.infection_counts else [0]
-
-            # Registrar en TensorBoard con prefijo por rol
-            role_prefix = f"train/{self.role}"
-            self.logger.record(f"{role_prefix}_win_rate", win_rate)
-            self.logger.record(f"{role_prefix}_episode_reward", np.mean(recent_rewards))
-            self.logger.record(f"{role_prefix}_episode_length", np.mean(recent_lengths))
-            self.logger.record(f"{role_prefix}_survival_rate", np.mean(recent_survival))
-            self.logger.record(f"{role_prefix}_infected_percentage", np.mean(recent_infected_pct))
-            self.logger.record(f"{role_prefix}_infection_count", np.mean(recent_infections))
-            self.logger.record(f"{role_prefix}_total_episodes", self.total_episodes)
-
-        # Print minimalista (heartbeat) para saber que el proceso sigue vivo
-        if self.n_calls % self.heartbeat_freq == 0:
-            win_rate = self.wins / self.total_episodes if self.total_episodes > 0 else 0
-            print(f"  [Phase {self.phase_id}][{self.role}] Step {self.n_calls:,} | "
-                  f"WR: {win_rate:.1%} | Eps: {self.total_episodes}", flush=True)
+        # Imprimir cada log_freq steps
+        if self.n_calls % self.log_freq == 0 and self.n_calls > 0:
+            self._print_metrics()
 
         return True
+
+    def _print_metrics(self):
+        """Imprime métricas de forma simple y limpia."""
+        # Calcular win rate
+        win_rate = (self.wins / self.total_episodes * 100) if self.total_episodes > 0 else 0
+
+        # Calcular mean reward (últimos 100 episodios)
+        recent_rewards = self.episode_rewards[-100:] if self.episode_rewards else [0]
+        mean_reward = np.mean(recent_rewards)
+
+        # Calcular FPS
+        current_time = time.time()
+        if self.last_log_time is not None:
+            elapsed = current_time - self.last_log_time
+            steps_done = self.n_calls - self.last_log_steps
+            fps = int(steps_done / elapsed) if elapsed > 0 else 0
+        else:
+            fps = 0
+
+        self.last_log_time = current_time
+        self.last_log_steps = self.n_calls
+
+        # Imprimir línea limpia
+        print(
+            f"[Phase {self.phase_id}][{self.role}] "
+            f"Step: {self.n_calls:,} | "
+            f"Win Rate: {win_rate:.0f}% | "
+            f"Mean Reward: {mean_reward:.1f} | "
+            f"FPS: {fps}",
+            flush=True
+        )
+
+        # Registrar en TensorBoard
+        if self.logger is not None:
+            role_prefix = f"train/{self.role}"
+            self.logger.record(f"{role_prefix}_win_rate", win_rate / 100)
+            self.logger.record(f"{role_prefix}_mean_reward", mean_reward)
+            self.logger.record(f"{role_prefix}_episodes", self.total_episodes)
 
 
 # ============================================================================
@@ -207,6 +223,7 @@ def evaluate_models(
     map_data: str,
     num_healthy: int,
     num_infected: int,
+    reward_config: RewardConfig,
     n_episodes: int = 20,
     max_steps: int = 500,
     seed: int = 42,
@@ -217,14 +234,6 @@ def evaluate_models(
 ) -> Dict[str, float]:
     """
     Evalua el rendimiento de los modelos en modo multi-agente.
-
-    Usa FlattenObservationWrapper para garantizar que las observaciones
-    se aplanen EXACTAMENTE igual que durante el entrenamiento.
-
-    Args:
-        deterministic: Si True, usa predicciones determinísticas.
-                       Si False, añade estocasticidad (útil si los agentes
-                       se quedan atascados en bucles en grid worlds).
     """
     config = EnvConfig(
         map_data=map_data,
@@ -232,13 +241,13 @@ def evaluate_models(
         initial_infected=num_infected,
         max_steps=max_steps,
         seed=seed,
-        reward_config=SPARSE_REWARDS,
+        reward_config=reward_config,
         infected_speed=INFECTED_SPEED,
         infected_global_vision=INFECTED_GLOBAL_VISION,
     )
     env = InfectionEnv(config)
 
-    # Crear wrapper para aplanar observaciones - garantiza compatibilidad con entrenamiento
+    # Crear wrapper para aplanar observaciones
     flatten_wrapper = FlattenObservationWrapper(env)
 
     if render and renderer is not None:
@@ -266,7 +275,6 @@ def evaluate_models(
         while not done and step_count < max_steps:
             actions = {}
             for agent in env.agents:
-                # Obtener observación dict y aplanarla usando el wrapper
                 obs_dict = env._get_observation(agent)
                 obs_flat = flatten_wrapper.observation(obs_dict)
 
@@ -304,15 +312,20 @@ def evaluate_models(
 
 
 # ============================================================================
-# Trainer
+# Trainer con Ping-Pong
 # ============================================================================
 
-class SparseTrainer:
-    """Entrenador con rewards sparse + curriculum progresivo."""
+class PingPongTrainer:
+    """
+    Entrenador con Ping-Pong Self-Play.
+
+    Alterna el entrenamiento entre infected y healthy cada N steps
+    para evitar overfitting a un oponente estático.
+    """
 
     def __init__(
         self,
-        output_dir: str = "models/sparse",
+        output_dir: str = "models/pingpong",
         seed: int = 42,
         n_envs: int = 4,
         verbose: int = 1,
@@ -335,7 +348,7 @@ class SparseTrainer:
     def _log(self, message: str):
         if self.verbose > 0:
             timestamp = datetime.now().strftime("%H:%M:%S")
-            print(f"[{timestamp}] {message}")
+            print(f"[{timestamp}] {message}", flush=True)
 
     def _save_log(self):
         log_path = self.output_dir / "training_log.json"
@@ -371,14 +384,35 @@ class SparseTrainer:
             self.render = False
             self.renderer = None
 
-    def _train_role(
+    def _create_model(
+        self,
+        vec_env,
+        role: str,
+    ) -> PPO:
+        """Crea un nuevo modelo PPO con hiperparámetros optimizados."""
+        return PPO(
+            "MlpPolicy",  # MlpPolicy para observaciones aplanadas
+            vec_env,
+            learning_rate=1e-4,
+            n_steps=2048,  # Reducido de 4096 para actualizaciones más frecuentes
+            batch_size=128,
+            n_epochs=10,
+            gamma=0.999,
+            ent_coef=0.01,  # Reducido de 0.05 para estrategias más precisas
+            clip_range=0.2,
+            gae_lambda=0.98,
+            verbose=0,
+            seed=self.seed + (0 if role == "healthy" else 1000),
+            tensorboard_log="./tensorboard_logs/",
+        )
+
+    def _create_vec_env(
         self,
         phase: PhaseConfig,
         role: str,
         opponent_model: Optional[PPO],
-        timesteps: int,
     ):
-        """Entrena un rol especifico."""
+        """Crea el entorno vectorizado para un rol."""
         vec_env = make_vec_env_parameter_sharing(
             map_data=phase.map_data,
             num_agents=phase.num_agents,
@@ -390,36 +424,35 @@ class SparseTrainer:
             opponent_deterministic=True,
             max_steps=phase.max_steps,
             vec_env_cls="dummy",
-            reward_config=SPARSE_REWARDS,
+            reward_config=phase.reward_config,
             infected_speed=INFECTED_SPEED,
             infected_global_vision=INFECTED_GLOBAL_VISION,
         )
 
-        # Envolver con VecNormalize para normalizar observaciones y rewards
+        # Envolver con VecNormalize
         vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.)
+
+        return vec_env
+
+    def _train_steps(
+        self,
+        phase: PhaseConfig,
+        role: str,
+        opponent_model: Optional[PPO],
+        timesteps: int,
+        round_num: int,
+    ):
+        """Entrena un rol por un número específico de steps."""
+        vec_env = self._create_vec_env(phase, role, opponent_model)
 
         model_attr = "healthy_model" if role == "healthy" else "infected_model"
         current_model = getattr(self, model_attr)
 
         if current_model is None:
-            # Parametros optimizados para sparse rewards
-            new_model = PPO(
-                "MultiInputPolicy",
-                vec_env,
-                learning_rate=1e-4,
-                n_steps=4096,
-                batch_size=128,
-                n_epochs=10,
-                gamma=0.999,
-                ent_coef=0.05,
-                clip_range=0.2,
-                gae_lambda=0.98,
-                verbose=0,
-                seed=self.seed + (0 if role == "healthy" else 1000),
-                tensorboard_log="./tensorboard_logs/",
-            )
+            new_model = self._create_model(vec_env, role)
             setattr(self, model_attr, new_model)
         else:
+            # Actualizar el entorno del modelo existente
             if current_model.n_envs != vec_env.num_envs:
                 temp_path = self.output_dir / "checkpoints" / f"temp_{role}.zip"
                 current_model.save(temp_path)
@@ -429,70 +462,79 @@ class SparseTrainer:
                 current_model.set_env(vec_env)
 
         model = getattr(self, model_attr)
-        callback = SparseLoggingCallback(
+        callback = SimpleLoggingCallback(
             phase_id=phase.phase_id,
             role=role.upper(),
-            log_freq=50000,
+            log_freq=10_000,  # Print cada 10k steps
         )
 
-        # Nombre único para TensorBoard: phase1_infected, phase2_healthy, etc.
-        tb_log_name = f"phase{phase.phase_id}_{role}"
+        tb_log_name = f"phase{phase.phase_id}_{role}_r{round_num}"
 
         model.learn(
             total_timesteps=timesteps,
             callback=callback,
             reset_num_timesteps=False,
-            progress_bar=True,
+            progress_bar=False,  # Sin barra de progreso, usamos nuestros prints
             tb_log_name=tb_log_name,
         )
 
         vec_env.close()
 
-    def train_phase(self, phase: PhaseConfig) -> Dict:
-        """Entrena una fase del curriculum."""
+    def train_phase_pingpong(self, phase: PhaseConfig) -> Dict:
+        """
+        Entrena una fase usando ping-pong self-play.
+
+        Alterna entre entrenar infected y healthy cada ping_pong_interval steps.
+        """
         self._log("=" * 60)
-        self._log(f"FASE {phase.phase_id} (SPARSE REWARDS)")
-        self._log(f"  Mapa: {phase.num_healthy + phase.num_infected} agentes")
-        self._log(f"  Agentes: {phase.num_healthy} healthy vs {phase.num_infected} infected")
+        self._log(f"FASE {phase.phase_id} ({phase.reward_config.preset.value.upper()} REWARDS)")
+        self._log(f"  Mapa: {phase.num_agents} agentes ({phase.num_healthy}H vs {phase.num_infected}I)")
         self._log(f"  Max steps: {phase.max_steps}")
-        self._log(f"  Timesteps infected: {phase.timesteps_infected:,}")
-        self._log(f"  Timesteps healthy: {phase.timesteps_healthy:,}")
+        self._log(f"  Total timesteps: {phase.total_timesteps:,}")
+        self._log(f"  Ping-pong interval: {phase.ping_pong_interval:,}")
         self._log("=" * 60)
 
         phase_start = time.time()
 
-        # Entrenar INFECTED primero
-        # IMPORTANTE: Si healthy_model es None (primera fase), usar heurística
-        # en lugar de un modelo aleatorio. Esto fuerza a Infected a aprender
-        # estrategias reales de persecución desde el principio.
-        infected_opponent = None if self.healthy_model is None else self.healthy_model
+        # Calcular número de rondas de ping-pong
+        timesteps_per_role = phase.total_timesteps // 2
+        num_rounds = timesteps_per_role // phase.ping_pong_interval
 
-        self._log(f"\n--- Entrenando INFECTED (Phase {phase.phase_id}) ---")
-        if infected_opponent is None:
-            self._log("  Oponente: Heurística (agentes huyen activamente)")
-        else:
-            self._log("  Oponente: Modelo Healthy entrenado")
+        self._log(f"\nPing-Pong: {num_rounds} rondas de {phase.ping_pong_interval:,} steps cada una")
 
-        self._train_role(
-            phase=phase,
-            role="infected",
-            opponent_model=infected_opponent,
-            timesteps=phase.timesteps_infected,
-        )
-        infected_path = self.output_dir / f"phase{phase.phase_id}_infected.zip"
-        self.infected_model.save(infected_path)
+        for round_num in range(1, num_rounds + 1):
+            self._log(f"\n--- Ronda {round_num}/{num_rounds} ---")
 
-        # Entrenar HEALTHY contra Infected ya entrenado
-        self._log(f"\n--- Entrenando HEALTHY (Phase {phase.phase_id}) ---")
-        self._log("  Oponente: Modelo Infected entrenado")
-        self._train_role(
-            phase=phase,
-            role="healthy",
-            opponent_model=self.infected_model,
-            timesteps=phase.timesteps_healthy,
-        )
-        healthy_path = self.output_dir / f"phase{phase.phase_id}_healthy.zip"
-        self.healthy_model.save(healthy_path)
+            # Entrenar INFECTED (contra healthy actual o heurística)
+            infected_opponent = self.healthy_model  # None si es primera ronda
+            self._log(f"  Training INFECTED... (vs {'Model' if infected_opponent else 'Heuristic'})")
+
+            self._train_steps(
+                phase=phase,
+                role="infected",
+                opponent_model=infected_opponent,
+                timesteps=phase.ping_pong_interval,
+                round_num=round_num,
+            )
+
+            # Entrenar HEALTHY (contra infected actualizado)
+            self._log(f"  Training HEALTHY... (vs Model)")
+
+            self._train_steps(
+                phase=phase,
+                role="healthy",
+                opponent_model=self.infected_model,
+                timesteps=phase.ping_pong_interval,
+                round_num=round_num,
+            )
+
+            # Guardar checkpoint cada ronda
+            self.infected_model.save(self.output_dir / "checkpoints" / f"phase{phase.phase_id}_r{round_num}_infected.zip")
+            self.healthy_model.save(self.output_dir / "checkpoints" / f"phase{phase.phase_id}_r{round_num}_healthy.zip")
+
+        # Guardar modelos finales de la fase
+        self.infected_model.save(self.output_dir / f"phase{phase.phase_id}_infected.zip")
+        self.healthy_model.save(self.output_dir / f"phase{phase.phase_id}_healthy.zip")
 
         # Evaluar
         self._log(f"\n--- Evaluando Phase {phase.phase_id} ---")
@@ -506,6 +548,7 @@ class SparseTrainer:
             map_data=phase.map_data,
             num_healthy=phase.num_healthy,
             num_infected=phase.num_infected,
+            reward_config=phase.reward_config,
             n_episodes=30,
             max_steps=phase.max_steps,
             seed=self.seed + 2000 + phase.phase_id,
@@ -523,6 +566,7 @@ class SparseTrainer:
 
         phase_results = {
             "phase_id": phase.phase_id,
+            "reward_preset": phase.reward_config.preset.value,
             "evaluation": eval_results,
             "time": phase_time,
         }
@@ -532,9 +576,9 @@ class SparseTrainer:
         return phase_results
 
     def run_adaptive_refinement(self) -> List[Dict]:
-        """Ciclo de refinamiento adaptativo."""
+        """Ciclo de refinamiento adaptativo post-curriculum."""
         self._log("\n" + "=" * 60)
-        self._log("REFINAMIENTO ADAPTATIVO (SPARSE)")
+        self._log("REFINAMIENTO ADAPTATIVO")
         self._log(f"  Ciclos: {ADAPTIVE_CYCLES}")
         self._log(f"  Timesteps por ciclo: {ADAPTIVE_TIMESTEPS:,}")
         self._log(f"  Umbral: {ADAPTIVE_THRESHOLD:.0%}")
@@ -542,14 +586,15 @@ class SparseTrainer:
 
         results = []
 
+        # Usar SPARSE rewards para refinamiento
         refinement_phase = PhaseConfig(
             phase_id=200,
             map_data=MAP_LVL3,
             num_healthy=5,
             num_infected=5,
-            timesteps_infected=ADAPTIVE_TIMESTEPS,
-            timesteps_healthy=ADAPTIVE_TIMESTEPS,
+            total_timesteps=ADAPTIVE_TIMESTEPS * 2,
             max_steps=500,
+            ping_pong_interval=ADAPTIVE_TIMESTEPS,
         )
 
         if self.render and self.renderer is None:
@@ -570,6 +615,7 @@ class SparseTrainer:
                 map_data=MAP_LVL3,
                 num_healthy=5,
                 num_infected=5,
+                reward_config=RewardConfig.sparse(),
                 n_episodes=20,
                 seed=self.seed + 4000 + cycle,
                 render=self.render,
@@ -597,11 +643,14 @@ class SparseTrainer:
 
             # Entrenar
             refinement_phase.phase_id = 200 + cycle
-            self._train_role(
+            opponent = self.healthy_model if role_to_train == "infected" else self.infected_model
+
+            self._train_steps(
                 phase=refinement_phase,
                 role=role_to_train,
-                opponent_model=self.healthy_model if role_to_train == "infected" else self.infected_model,
+                opponent_model=opponent,
                 timesteps=ADAPTIVE_TIMESTEPS,
+                round_num=cycle,
             )
 
             # Guardar checkpoint
@@ -627,6 +676,7 @@ class SparseTrainer:
             map_data=MAP_LVL3,
             num_healthy=5,
             num_infected=5,
+            reward_config=RewardConfig.sparse(),
             n_episodes=30,
             seed=self.seed + 5000,
             render=self.render,
@@ -645,23 +695,23 @@ class SparseTrainer:
         return results
 
     def run(self, start_phase: int = 1) -> bool:
-        """Ejecuta el curriculum completo + refinamiento."""
+        """Ejecuta el curriculum completo con ping-pong + refinamiento."""
         self._log("=" * 60)
-        self._log("ENTRENAMIENTO SPARSE + CURRICULUM")
+        self._log("ENTRENAMIENTO PING-PONG + CURRICULUM")
         self._log("=" * 60)
         self._log(f"  Fases: {len(CURRICULUM_PHASES)}")
         self._log(f"  Fase inicial: {start_phase}")
-        self._log(f"  Rewards: SOLO victoria (+10) o derrota (0)")
+        self._log(f"  Curriculum: DENSE -> INTERMEDIATE -> SPARSE")
         self._log(f"  Output: {self.output_dir}")
         self._log("=" * 60)
 
         total_start = time.time()
 
-        # Ejecutar fases del curriculum
+        # Ejecutar fases del curriculum con ping-pong
         for phase in CURRICULUM_PHASES:
             if phase.phase_id < start_phase:
                 continue
-            self.train_phase(phase)
+            self.train_phase_pingpong(phase)
 
         # Ejecutar refinamiento adaptativo
         self.run_adaptive_refinement()
@@ -685,15 +735,9 @@ class SparseTrainer:
         healthy_path = self.output_dir / f"phase{phase_id}_healthy.zip"
         infected_path = self.output_dir / f"phase{phase_id}_infected.zip"
 
-        temp_env = make_vec_env_parameter_sharing(
-            map_data=MAP_LVL1,
-            num_agents=5,
-            initial_infected=1,
-            force_role="healthy",
-            reward_config=SPARSE_REWARDS,
-            infected_speed=INFECTED_SPEED,
-            infected_global_vision=INFECTED_GLOBAL_VISION,
-        )
+        # Crear entorno temporal para cargar modelos
+        phase = CURRICULUM_PHASES[0]  # Usar fase 1 como referencia
+        temp_env = self._create_vec_env(phase, "healthy", None)
 
         if healthy_path.exists():
             self.healthy_model = PPO.load(healthy_path, env=temp_env)
@@ -703,6 +747,8 @@ class SparseTrainer:
             self.infected_model = PPO.load(infected_path, env=temp_env)
             self._log(f"Cargado infected de Phase {phase_id}")
 
+        temp_env.close()
+
 
 # ============================================================================
 # Main
@@ -710,17 +756,17 @@ class SparseTrainer:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Entrenamiento Sparse con Curriculum",
+        description="Entrenamiento Ping-Pong con Curriculum",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ejemplos:
-  python scripts/train.py --output-dir models/sparse_v1
-  python scripts/train.py --output-dir models/sparse_v1 --start-phase 2
-  python scripts/train.py --output-dir models/sparse_v1 --render
+  python scripts/train.py --output-dir models/v1
+  python scripts/train.py --output-dir models/v1 --start-phase 2
+  python scripts/train.py --output-dir models/v1 --render
         """
     )
 
-    parser.add_argument("--output-dir", type=str, default="models/sparse",
+    parser.add_argument("--output-dir", type=str, default="models/pingpong",
                         help="Directorio de salida")
     parser.add_argument("--start-phase", type=int, default=1,
                         help="Fase inicial (1-3)")
@@ -737,7 +783,7 @@ Ejemplos:
 
     args = parser.parse_args()
 
-    trainer = SparseTrainer(
+    trainer = PingPongTrainer(
         output_dir=args.output_dir,
         seed=args.seed,
         n_envs=args.n_envs,
@@ -759,8 +805,8 @@ Ejemplos:
     try:
         trainer.run(start_phase=args.start_phase)
     except KeyboardInterrupt:
-        print("\n\nEntrenamiento interrumpido.")
-        print(f"Modelos guardados en: {trainer.output_dir}")
+        print("\n\nEntrenamiento interrumpido.", flush=True)
+        print(f"Modelos guardados en: {trainer.output_dir}", flush=True)
 
 
 if __name__ == "__main__":

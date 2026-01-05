@@ -280,17 +280,154 @@ class SingleAgentWrapper(gym.Wrapper):
         return np.concatenate(parts)
 
     def _heuristic_action(self, agent: BaseAgent) -> int:
-        """Acción heurística para un agente."""
+        """
+        Acción heurística mejorada usando BFS para rodear obstáculos.
+
+        En lugar de moverse directamente hacia el objetivo (lo cual causa
+        que los agentes se atasquen en paredes), usa BFS para encontrar
+        el camino real y da el primer paso de ese camino.
+        """
         if isinstance(agent, InfectedAgent):
             target = self.env.agents.find_nearest_healthy(agent)
             if target:
-                return self.env._move_towards(agent, target.position)
+                return self._bfs_move_towards(agent, target.position)
         else:
             threat = self.env.agents.find_nearest_infected(agent)
             if threat:
-                return self.env._move_away_from(agent, threat.position)
+                return self._bfs_move_away_from(agent, threat.position)
 
         return self.env._np_random.integers(0, 4)
+
+    def _bfs_move_towards(self, agent: BaseAgent, target_pos: Tuple[int, int]) -> int:
+        """
+        Usa BFS para encontrar el siguiente paso hacia el objetivo,
+        rodeando obstáculos si es necesario.
+        """
+        from collections import deque
+
+        start = agent.position
+        goal = target_pos
+
+        if start == goal:
+            return self.env._np_random.integers(0, 4)
+
+        # BFS para encontrar el camino
+        queue = deque([(start[0], start[1], [])])  # (x, y, path)
+        visited = {start}
+
+        # Direcciones: UP=0, RIGHT=1, DOWN=2, LEFT=3 en términos de movimiento
+        # Pero las acciones son: 0=turn_left, 1=turn_right, 2=forward, 3=backward
+        directions = [
+            (0, -1),   # UP (dy=-1)
+            (1, 0),    # RIGHT (dx=+1)
+            (0, 1),    # DOWN (dy=+1)
+            (-1, 0),   # LEFT (dx=-1)
+        ]
+
+        max_search = min(100, self.env.width * self.env.height // 4)
+
+        while queue and len(visited) < max_search:
+            x, y, path = queue.popleft()
+
+            for dir_idx, (dx, dy) in enumerate(directions):
+                nx, ny = x + dx, y + dy
+
+                if not (0 <= nx < self.env.width and 0 <= ny < self.env.height):
+                    continue
+                if (nx, ny) in visited:
+                    continue
+                if not self.env._is_valid_position(nx, ny):
+                    continue
+
+                new_path = path + [(dx, dy)]
+
+                if (nx, ny) == goal:
+                    # Encontramos el camino, convertir primer paso a acción
+                    return self._direction_to_action(agent, new_path[0])
+
+                visited.add((nx, ny))
+                queue.append((nx, ny, new_path))
+
+        # Si no hay camino, usar movimiento directo como fallback
+        return self.env._move_towards(agent, target_pos)
+
+    def _bfs_move_away_from(self, agent: BaseAgent, threat_pos: Tuple[int, int]) -> int:
+        """
+        Usa BFS para encontrar la mejor dirección para huir,
+        maximizando la distancia al enemigo mientras rodea obstáculos.
+        """
+        from collections import deque
+
+        start = agent.position
+
+        # Evaluar cada dirección posible y elegir la que maximice distancia
+        directions = [
+            (0, -1),   # UP
+            (1, 0),    # RIGHT
+            (0, 1),    # DOWN
+            (-1, 0),   # LEFT
+        ]
+
+        best_action = None
+        best_distance = -1
+
+        for dx, dy in directions:
+            nx, ny = start[0] + dx, start[1] + dy
+
+            if not (0 <= nx < self.env.width and 0 <= ny < self.env.height):
+                continue
+            if not self.env._is_valid_position(nx, ny):
+                continue
+
+            # Calcular distancia Manhattan al enemigo desde esta posición
+            dist = abs(nx - threat_pos[0]) + abs(ny - threat_pos[1])
+
+            if dist > best_distance:
+                best_distance = dist
+                best_action = self._direction_to_action(agent, (dx, dy))
+
+        if best_action is not None:
+            return best_action
+
+        # Fallback: movimiento aleatorio
+        return self.env._np_random.integers(0, 4)
+
+    def _direction_to_action(self, agent: BaseAgent, direction: Tuple[int, int]) -> int:
+        """
+        Convierte una dirección de movimiento (dx, dy) en una acción del agente.
+
+        Acciones: 0=turn_left, 1=turn_right, 2=forward, 3=backward
+        """
+        dx, dy = direction
+
+        # Determinar la dirección objetivo
+        if dy < 0:
+            target_dir = Direction.UP
+        elif dy > 0:
+            target_dir = Direction.DOWN
+        elif dx > 0:
+            target_dir = Direction.RIGHT
+        else:
+            target_dir = Direction.LEFT
+
+        current_dir = agent.direction
+
+        # Si ya está mirando en la dirección correcta, avanzar
+        if current_dir == target_dir:
+            return 2  # forward
+
+        # Calcular la rotación necesaria
+        diff = (target_dir.value - current_dir.value) % 4
+
+        if diff == 1:
+            return 1  # turn_right
+        elif diff == 3:
+            return 0  # turn_left
+        elif diff == 2:
+            # Necesita dar la vuelta: elegir aleatoriamente izq o derecha
+            return self.env._np_random.choice([0, 1])
+
+        return 2  # forward por defecto
 
     def _get_obs(self) -> Dict[str, Any]:
         """Obtiene observación del agente controlado."""
