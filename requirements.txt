@@ -1,6 +1,7 @@
 # Core
 gymnasium
 stable-baselines3
+tensorboard
 numpy
 matplotlib
 pygame
