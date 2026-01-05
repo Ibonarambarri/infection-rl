@@ -10,6 +10,7 @@ from .wrappers import (
     make_vec_env_parameter_sharing,
     SingleAgentWrapper,
     FlattenObservationWrapper,
+    DictObservationWrapper,
     MultiAgentToSingleAgentWrapper,
 )
 
@@ -24,5 +25,6 @@ __all__ = [
     "make_vec_env_parameter_sharing",
     "SingleAgentWrapper",
     "FlattenObservationWrapper",
+    "DictObservationWrapper",
     "MultiAgentToSingleAgentWrapper",
 ]

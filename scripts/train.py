@@ -31,7 +31,7 @@ from stable_baselines3.common.vec_env import VecNormalize
 
 from src.maps import MAP_LVL1, MAP_LVL2, MAP_LVL3
 from src.envs import InfectionEnv, EnvConfig, RewardConfig, RewardPreset
-from src.envs.wrappers import make_vec_env_parameter_sharing, FlattenObservationWrapper
+from src.envs.wrappers import make_vec_env_parameter_sharing, DictObservationWrapper
 
 
 # ============================================================================
@@ -247,8 +247,8 @@ def evaluate_models(
     )
     env = InfectionEnv(config)
 
-    # Crear wrapper para aplanar observaciones
-    flatten_wrapper = FlattenObservationWrapper(env)
+    # Crear wrapper para convertir observaciones a formato MultiInputPolicy
+    dict_wrapper = DictObservationWrapper(env)
 
     if render and renderer is not None:
         renderer.set_env(env)
@@ -276,12 +276,13 @@ def evaluate_models(
             actions = {}
             for agent in env.agents:
                 obs_dict = env._get_observation(agent)
-                obs_flat = flatten_wrapper.observation(obs_dict)
+                # Convertir a formato MultiInputPolicy (image + vector)
+                obs_multi = dict_wrapper.observation(obs_dict)
 
                 if agent.is_infected:
-                    action, _ = infected_model.predict(obs_flat, deterministic=deterministic)
+                    action, _ = infected_model.predict(obs_multi, deterministic=deterministic)
                 else:
-                    action, _ = healthy_model.predict(obs_flat, deterministic=deterministic)
+                    action, _ = healthy_model.predict(obs_multi, deterministic=deterministic)
                 actions[agent.id] = int(action)
 
             env.step_all(actions)
@@ -391,14 +392,14 @@ class PingPongTrainer:
     ) -> PPO:
         """Crea un nuevo modelo PPO con hiperparámetros optimizados."""
         return PPO(
-            "MlpPolicy",  # MlpPolicy para observaciones aplanadas
+            "MultiInputPolicy",  # CNN para imagen + MLP para vector
             vec_env,
             learning_rate=1e-4,
-            n_steps=2048,  # Reducido de 4096 para actualizaciones más frecuentes
+            n_steps=4096,  # Horizonte largo para sparse rewards
             batch_size=128,
             n_epochs=10,
             gamma=0.999,
-            ent_coef=0.01,  # Reducido de 0.05 para estrategias más precisas
+            ent_coef=0.05,  # Mayor exploración para sparse rewards
             clip_range=0.2,
             gae_lambda=0.98,
             verbose=0,

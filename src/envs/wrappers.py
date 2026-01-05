@@ -68,6 +68,82 @@ class FlattenObservationWrapper(gym.ObservationWrapper):
         return np.concatenate(parts)
 
 
+class DictObservationWrapper(gym.ObservationWrapper):
+    """
+    Convierte la observación dict a formato compatible con MultiInputPolicy.
+
+    MultiInputPolicy de SB3 detecta automáticamente:
+    - Keys con shape (H, W, C) → CNN (NatureCNN)
+    - Keys con shape (N,) → MLP
+
+    Este wrapper:
+    1. Mantiene 'image' para CNN (normalizada a [0,1])
+    2. Agrupa features vectoriales (direction, state, position, nearby) en 'vector'
+    """
+
+    def __init__(self, env: gym.Env):
+        super().__init__(env)
+
+        config = env.unwrapped.config
+        view_size = config.view_size
+
+        # Calcular tamaño del vector concatenado
+        direction_size = 4  # one-hot
+        state_size = 2  # one-hot
+        position_size = 2
+        nearby_size = config.max_nearby_agents * 4
+
+        vector_size = direction_size + state_size + position_size + nearby_size
+
+        # Observation space para MultiInputPolicy
+        self.observation_space = spaces.Dict({
+            "image": spaces.Box(
+                low=0.0, high=1.0,
+                shape=(view_size, view_size, 2),
+                dtype=np.float32
+            ),
+            "vector": spaces.Box(
+                low=-1.0, high=1.0,
+                shape=(vector_size,),
+                dtype=np.float32
+            ),
+        })
+
+        self._config = config
+
+    def observation(self, obs: Dict[str, Any]) -> Dict[str, np.ndarray]:
+        """Convierte observación a formato MultiInputPolicy."""
+        # Imagen normalizada para CNN
+        image = obs["image"].astype(np.float32) / 255.0
+
+        # Construir vector de features
+        parts = []
+
+        # Direction one-hot
+        direction = np.zeros(4, dtype=np.float32)
+        direction[obs["direction"]] = 1.0
+        parts.append(direction)
+
+        # State one-hot
+        state = np.zeros(2, dtype=np.float32)
+        state[obs["state"]] = 1.0
+        parts.append(state)
+
+        # Position normalizada
+        position = obs["position"].astype(np.float32) / 100.0  # Normalizar
+        parts.append(position)
+
+        # Nearby agents
+        parts.append(obs["nearby_agents"].flatten().astype(np.float32))
+
+        vector = np.concatenate(parts)
+
+        return {
+            "image": image,
+            "vector": vector,
+        }
+
+
 class SingleAgentWrapper(gym.Wrapper):
     """
     Convierte el entorno multi-agente en single-agent.
@@ -165,6 +241,10 @@ class SingleAgentWrapper(gym.Wrapper):
         Ejecuta un paso con la acción del agente controlado.
 
         Si hay un modelo oponente, lo usa para predecir acciones del bando contrario.
+
+        IMPORTANTE: Si force_role="healthy" y el agente es infectado durante este paso,
+        se fuerza terminación local para cortar el flujo de experiencia y evitar que
+        el agente aprenda de rewards de comportamiento infectado.
         """
         if self.env.done:
             return self._get_obs(), 0.0, True, False, self._get_info()
@@ -174,8 +254,11 @@ class SingleAgentWrapper(gym.Wrapper):
         # Guardar posiciones anteriores
         old_positions = {a.id: a.position for a in self.env.agents}
 
-        # Ejecutar acción del agente controlado
+        # Guardar estado de infección ANTES de ejecutar acciones
         controlled_agent = self.env.agents.get(self.controlled_agent_id)
+        was_healthy = controlled_agent is not None and controlled_agent.is_healthy
+
+        # Ejecutar acción del agente controlado
         if controlled_agent:
             self.env._execute_action(controlled_agent, action)
 
@@ -200,7 +283,33 @@ class SingleAgentWrapper(gym.Wrapper):
         # Obtener agente controlado (puede haber sido transformado)
         controlled_agent = self.env.agents.get(self.controlled_agent_id)
 
-        # Calcular recompensa
+        # === DETECCIÓN DE CAMBIO DE ROL ===
+        # Si force_role="healthy" y el agente ERA healthy pero AHORA está infectado,
+        # forzar terminación local con penalización
+        agent_was_infected = (
+            self.force_role == "healthy" and
+            was_healthy and
+            controlled_agent is not None and
+            controlled_agent.is_infected
+        )
+
+        if agent_was_infected:
+            # Cortar flujo de experiencia: terminación forzada con penalización
+            reward = self.env.config.reward_config.reward_infected_penalty
+            terminated = True
+            truncated = False
+
+            # Actualizar estadísticas de agentes igualmente
+            for agent in self.env.agents:
+                agent.step()
+
+            obs = self._get_obs()
+            info = self._get_info()
+            info["agent_infected"] = True  # Flag para debugging/logging
+
+            return obs, reward, terminated, truncated, info
+
+        # Calcular recompensa (flujo normal)
         reward = self.env._calculate_reward(controlled_agent, new_infections, self.controlled_agent_id)
 
         # Actualizar estadísticas de agentes
@@ -301,7 +410,7 @@ class SingleAgentWrapper(gym.Wrapper):
     def _bfs_move_towards(self, agent: BaseAgent, target_pos: Tuple[int, int]) -> int:
         """
         Usa BFS para encontrar el siguiente paso hacia el objetivo,
-        rodeando obstáculos si es necesario.
+        rodeando obstáculos y otros agentes dinámicos.
         """
         from collections import deque
 
@@ -336,7 +445,11 @@ class SingleAgentWrapper(gym.Wrapper):
                     continue
                 if (nx, ny) in visited:
                     continue
-                if not self.env._is_valid_position(nx, ny):
+                # Verificar si es una celda válida (no muro)
+                if not self.env.map_generator.is_valid_position(nx, ny):
+                    continue
+                # Verificar si hay otro agente ocupando la celda (excepto el objetivo)
+                if (nx, ny) != goal and self.env.agents.get_agent_at((nx, ny)) is not None:
                     continue
 
                 new_path = path + [(dx, dy)]
@@ -348,16 +461,14 @@ class SingleAgentWrapper(gym.Wrapper):
                 visited.add((nx, ny))
                 queue.append((nx, ny, new_path))
 
-        # Si no hay camino, usar movimiento directo como fallback
-        return self.env._move_towards(agent, target_pos)
+        # Si no hay camino, movimiento aleatorio como fallback
+        return self.env._np_random.integers(0, 4)
 
     def _bfs_move_away_from(self, agent: BaseAgent, threat_pos: Tuple[int, int]) -> int:
         """
-        Usa BFS para encontrar la mejor dirección para huir,
-        maximizando la distancia al enemigo mientras rodea obstáculos.
+        Evalúa direcciones posibles para huir,
+        maximizando la distancia al enemigo y evitando otros agentes.
         """
-        from collections import deque
-
         start = agent.position
 
         # Evaluar cada dirección posible y elegir la que maximice distancia
@@ -376,7 +487,11 @@ class SingleAgentWrapper(gym.Wrapper):
 
             if not (0 <= nx < self.env.width and 0 <= ny < self.env.height):
                 continue
-            if not self.env._is_valid_position(nx, ny):
+            # Verificar si es una celda válida (no muro)
+            if not self.env.map_generator.is_valid_position(nx, ny):
+                continue
+            # Verificar si hay otro agente ocupando la celda
+            if self.env.agents.get_agent_at((nx, ny)) is not None:
                 continue
 
             # Calcular distancia Manhattan al enemigo desde esta posición
@@ -491,14 +606,14 @@ class RecordEpisodeStatisticsWrapper(gym.Wrapper):
 
 
 class MultiAgentToSingleAgentWrapper(gym.Wrapper):
-    """Wrapper completo: SingleAgent + Flatten + Statistics."""
+    """Wrapper completo: SingleAgent + Dict/Flatten + Statistics."""
 
     def __init__(
         self,
         env: InfectionEnv,
         controlled_agent_id: int = 0,
         force_role: Optional[str] = None,
-        flatten: bool = True,
+        flatten: bool = False,
         opponent_model: Optional[Union[str, Path, Any]] = None,
         opponent_deterministic: bool = True,
     ):
@@ -511,7 +626,11 @@ class MultiAgentToSingleAgentWrapper(gym.Wrapper):
         )
 
         if flatten:
+            # MlpPolicy: observación aplanada
             env = FlattenObservationWrapper(env)
+        else:
+            # MultiInputPolicy: imagen (CNN) + vector (MLP)
+            env = DictObservationWrapper(env)
 
         env = RecordEpisodeStatisticsWrapper(env)
 
@@ -525,7 +644,7 @@ def make_infection_env(
     initial_infected: int = 1,
     controlled_agent_id: int = 0,
     render_mode: str = None,
-    flatten: bool = True,
+    flatten: bool = False,
     force_role: str = None,
     seed: int = None,
     opponent_model: Optional[Union[str, Path, Any]] = None,

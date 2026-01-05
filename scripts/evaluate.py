@@ -94,7 +94,8 @@ def compare_models(model_paths: list, n_episodes: int = 50, output_dir: str = No
         output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    env = make_infection_env()
+    # flatten=False para MultiInputPolicy (CNN + MLP)
+    env = make_infection_env(flatten=False)
 
     results = {}
     print("\n" + "=" * 60)
@@ -169,7 +170,8 @@ def main():
         print("  AGENT EVALUATION")
         print("=" * 60)
 
-        env = make_infection_env(force_role=args.role)
+        # flatten=False para MultiInputPolicy (CNN + MLP)
+        env = make_infection_env(force_role=args.role, flatten=False)
 
         print(f"\n>>> Loading model: {args.model}")
         model, algo = load_model(args.model, env)
