@@ -347,16 +347,51 @@ class SingleAgentWrapper(gym.Wrapper):
         return self._heuristic_action(agent)
 
     def _predict_opponent_action(self, agent: BaseAgent) -> int:
-        """Predice la acción usando el modelo oponente."""
-        try:
-            # Obtener observación para el agente (es un Dict con 'image', 'vector', etc.)
-            obs_dict = self.env._get_observation(agent)
+        """
+        Predice la acción usando el modelo oponente.
 
-            # CORRECCIÓN: Pasar el diccionario DIRECTAMENTE.
-            # Eliminamos self._flatten_observation(obs_dict) porque el modelo CNN 
-            # (MultiInputPolicy) necesita la estructura original para procesar la imagen.
+        Procesa la observación cruda al formato exacto que espera MultiInputPolicy
+        ({image, vector}) para garantizar consistencia con el entrenamiento.
+        """
+        try:
+            # 1. Obtener observación cruda del entorno
+            raw_obs = self.env._get_observation(agent)
+
+            # 2. Procesar al formato MultiInputPolicy {image, vector}
+            # Imagen: normalizar a [0, 1] como float32
+            image = raw_obs["image"].astype(np.float32) / 255.0
+
+            # Construir vector de features
+            parts = []
+
+            # Direction one-hot (4 elementos)
+            direction = np.zeros(4, dtype=np.float32)
+            direction[raw_obs["direction"]] = 1.0
+            parts.append(direction)
+
+            # State one-hot (2 elementos: 0=healthy, 1=infected)
+            state = np.zeros(2, dtype=np.float32)
+            state[raw_obs["state"]] = 1.0
+            parts.append(state)
+
+            # Position normalizada (dividir por 100.0 como en DictObservationWrapper)
+            position = raw_obs["position"].astype(np.float32) / 100.0
+            parts.append(position)
+
+            # Nearby agents (flatten)
+            nearby = raw_obs["nearby_agents"].flatten().astype(np.float32)
+            parts.append(nearby)
+
+            vector = np.concatenate(parts)
+
+            processed_obs = {
+                "image": image,
+                "vector": vector,
+            }
+
+            # 3. Predecir con el modelo oponente
             action, _ = self._opponent_model.predict(
-                obs_dict,
+                processed_obs,
                 deterministic=self.opponent_deterministic
             )
 

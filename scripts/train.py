@@ -27,11 +27,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.vec_env import VecNormalize
 
 from src.maps import MAP_LVL1, MAP_LVL2, MAP_LVL3
 from src.envs import InfectionEnv, EnvConfig, RewardConfig, RewardPreset
-from src.envs.wrappers import make_vec_env_parameter_sharing, DictObservationWrapper
+from src.envs.wrappers import make_vec_env_parameter_sharing
 
 
 # ============================================================================
@@ -234,25 +233,68 @@ def evaluate_models(
 ) -> Dict[str, float]:
     """
     Evalua el rendimiento de los modelos en modo multi-agente.
-    Usa DictObservationWrapper para convertir observaciones al formato {image, vector}.
+
+    Procesa las observaciones manualmente para garantizar que el formato
+    sea IDÉNTICO al usado durante el entrenamiento (MultiInputPolicy: 'image' y 'vector').
     """
-    config = EnvConfig(
+    from src.envs.wrappers import make_infection_env
+
+    # Crear entorno usando la misma función que el entrenamiento
+    env = make_infection_env(
         map_data=map_data,
         num_agents=num_healthy + num_infected,
         initial_infected=num_infected,
         max_steps=max_steps,
         seed=seed,
+        flatten=False,  # MultiInputPolicy necesita dict con 'image' y 'vector'
         reward_config=reward_config,
         infected_speed=INFECTED_SPEED,
         infected_global_vision=INFECTED_GLOBAL_VISION,
     )
-    env = InfectionEnv(config)
 
-    # Wrapper para convertir observaciones al formato MultiInputPolicy {image, vector}
-    obs_wrapper = DictObservationWrapper(env)
+    # Obtener referencia al entorno base para acceder a config y _get_observation
+    base_env = env.unwrapped
+
+    def _process_obs(raw_obs: Dict) -> Dict[str, np.ndarray]:
+        """
+        Convierte observación cruda al formato MultiInputPolicy.
+
+        Replica EXACTAMENTE el procesamiento de DictObservationWrapper
+        para garantizar consistencia entre entrenamiento y evaluación.
+        """
+        # Imagen: normalizar a [0, 1] como float32
+        image = raw_obs["image"].astype(np.float32) / 255.0
+
+        # Construir vector de features
+        parts = []
+
+        # Direction one-hot (4 elementos)
+        direction = np.zeros(4, dtype=np.float32)
+        direction[raw_obs["direction"]] = 1.0
+        parts.append(direction)
+
+        # State one-hot (2 elementos: 0=healthy, 1=infected)
+        state = np.zeros(2, dtype=np.float32)
+        state[raw_obs["state"]] = 1.0
+        parts.append(state)
+
+        # Position normalizada (dividir por 100.0 como en el wrapper)
+        position = raw_obs["position"].astype(np.float32) / 100.0
+        parts.append(position)
+
+        # Nearby agents (flatten)
+        nearby = raw_obs["nearby_agents"].flatten().astype(np.float32)
+        parts.append(nearby)
+
+        vector = np.concatenate(parts)
+
+        return {
+            "image": image,
+            "vector": vector,
+        }
 
     if render and renderer is not None:
-        renderer.set_env(env)
+        renderer.set_env(base_env)
 
     results = {
         "healthy_wins": 0,
@@ -276,28 +318,29 @@ def evaluate_models(
         while not done and step_count < max_steps:
             actions = {}
 
-            for agent in env.agents:
-                # Obtener observación cruda y convertir al formato {image, vector}
-                raw_obs = env._get_observation(agent)
-                obs_multi = obs_wrapper.observation(raw_obs)
+            for agent in base_env.agents:
+                # Obtener observación cruda del entorno base
+                raw_obs = base_env._get_observation(agent)
+                # Procesar al formato que espera el modelo
+                processed_obs = _process_obs(raw_obs)
 
                 if agent.is_infected:
                     if infected_model is not None:
-                        action, _ = infected_model.predict(obs_multi, deterministic=deterministic)
+                        action, _ = infected_model.predict(processed_obs, deterministic=deterministic)
                     else:
                         action = np.random.randint(0, 4)
                 else:
                     if healthy_model is not None:
-                        action, _ = healthy_model.predict(obs_multi, deterministic=deterministic)
+                        action, _ = healthy_model.predict(processed_obs, deterministic=deterministic)
                     else:
                         action = np.random.randint(0, 4)
 
                 actions[agent.id] = int(action)
 
-            env.step_all(actions)
+            base_env.step_all(actions)
             step_count += 1
 
-            if env.num_healthy == 0:
+            if base_env.num_healthy == 0:
                 done = True
                 results["infected_wins"] += 1
             elif step_count >= max_steps:
@@ -309,10 +352,12 @@ def evaluate_models(
                     if renderer.skip_requested:
                         skip_all = True
                     break
-                renderer.render_frame(step_count, env.num_healthy, env.num_infected)
+                renderer.render_frame(step_count, base_env.num_healthy, base_env.num_infected)
                 renderer.wait_frame()
 
         results["total_steps"] += step_count
+
+    env.close()
 
     results["healthy_win_rate"] = results["healthy_wins"] / n_episodes
     results["infected_win_rate"] = results["infected_wins"] / n_episodes
@@ -437,8 +482,10 @@ class PingPongTrainer:
             infected_global_vision=INFECTED_GLOBAL_VISION,
         )
 
-        # Envolver con VecNormalize
-        vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.)
+        # NOTA: VecNormalize eliminado porque:
+        # 1. Nuestros wrappers ya normalizan imágenes a [0,1]
+        # 2. VecNormalize cambia estadísticas durante entrenamiento pero no se aplica igual en evaluación
+        # 3. Esto causaba desajuste de observaciones → evaluación con resultados falsos
 
         return vec_env
 
