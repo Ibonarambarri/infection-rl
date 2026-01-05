@@ -234,6 +234,7 @@ def evaluate_models(
 ) -> Dict[str, float]:
     """
     Evalua el rendimiento de los modelos en modo multi-agente.
+    Usa DictObservationWrapper para convertir observaciones al formato {image, vector}.
     """
     config = EnvConfig(
         map_data=map_data,
@@ -247,8 +248,8 @@ def evaluate_models(
     )
     env = InfectionEnv(config)
 
-    # Crear wrapper para convertir observaciones a formato MultiInputPolicy
-    dict_wrapper = DictObservationWrapper(env)
+    # Wrapper para convertir observaciones al formato MultiInputPolicy {image, vector}
+    obs_wrapper = DictObservationWrapper(env)
 
     if render and renderer is not None:
         renderer.set_env(env)
@@ -274,19 +275,34 @@ def evaluate_models(
 
         while not done and step_count < max_steps:
             actions = {}
+
             for agent in env.agents:
-                obs_dict = env._get_observation(agent)
-                # Convertir a formato MultiInputPolicy (image + vector)
-                obs_multi = dict_wrapper.observation(obs_dict)
+                # Obtener observación cruda y convertir al formato {image, vector}
+                raw_obs = env._get_observation(agent)
+                obs_multi = obs_wrapper.observation(raw_obs)
 
                 if agent.is_infected:
-                    action, _ = infected_model.predict(obs_multi, deterministic=deterministic)
+                    if infected_model is not None:
+                        action, _ = infected_model.predict(obs_multi, deterministic=deterministic)
+                    else:
+                        action = np.random.randint(0, 4)
                 else:
-                    action, _ = healthy_model.predict(obs_multi, deterministic=deterministic)
+                    if healthy_model is not None:
+                        action, _ = healthy_model.predict(obs_multi, deterministic=deterministic)
+                    else:
+                        action = np.random.randint(0, 4)
+
                 actions[agent.id] = int(action)
 
             env.step_all(actions)
             step_count += 1
+
+            if env.num_healthy == 0:
+                done = True
+                results["infected_wins"] += 1
+            elif step_count >= max_steps:
+                done = True
+                results["healthy_wins"] += 1
 
             if render and renderer is not None:
                 if not renderer.handle_events():
@@ -296,13 +312,6 @@ def evaluate_models(
                 renderer.render_frame(step_count, env.num_healthy, env.num_infected)
                 renderer.wait_frame()
 
-            if env.num_healthy == 0:
-                done = True
-                results["infected_wins"] += 1
-            elif step_count >= max_steps:
-                done = True
-                results["healthy_wins"] += 1
-
         results["total_steps"] += step_count
 
     results["healthy_win_rate"] = results["healthy_wins"] / n_episodes
@@ -310,8 +319,6 @@ def evaluate_models(
     results["avg_steps"] = results["total_steps"] / n_episodes
 
     return results
-
-
 # ============================================================================
 # Trainer con Ping-Pong
 # ============================================================================

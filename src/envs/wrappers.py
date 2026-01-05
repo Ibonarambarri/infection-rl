@@ -349,22 +349,21 @@ class SingleAgentWrapper(gym.Wrapper):
     def _predict_opponent_action(self, agent: BaseAgent) -> int:
         """Predice la acción usando el modelo oponente."""
         try:
-            # Obtener observación para el agente
+            # Obtener observación para el agente (es un Dict con 'image', 'vector', etc.)
             obs_dict = self.env._get_observation(agent)
 
-            # Aplanar observación (el modelo espera observación plana)
-            obs_flat = self._flatten_observation(obs_dict)
-
-            # Predecir acción
+            # CORRECCIÓN: Pasar el diccionario DIRECTAMENTE.
+            # Eliminamos self._flatten_observation(obs_dict) porque el modelo CNN 
+            # (MultiInputPolicy) necesita la estructura original para procesar la imagen.
             action, _ = self._opponent_model.predict(
-                obs_flat,
+                obs_dict,
                 deterministic=self.opponent_deterministic
             )
 
             return int(action)
 
         except Exception as e:
-            # Fallback a heurística si hay error
+            # Fallback a heurística si hay error (ej. desajuste de dimensiones)
             return self._heuristic_action(agent)
 
     def _flatten_observation(self, obs: Dict[str, Any]) -> np.ndarray:
