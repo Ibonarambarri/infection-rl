@@ -83,33 +83,33 @@ class PhaseConfig:
 
 
 # Curriculum progresivo: mapas pequeños → grandes
-# Los infected necesitan aprender a ganar en mapas fáciles primero
+# Balance 50/50 entre healthy e infected en todas las fases
 CURRICULUM_PHASES: List[PhaseConfig] = [
     PhaseConfig(
         phase_id=1,
-        map_data=MAP_LVL1,  # 20x20 - más fácil para infected
-        num_healthy=4,
-        num_infected=1,
-        timesteps_infected=500_000,  # Más timesteps porque sparse es difícil
-        timesteps_healthy=300_000,
-        max_steps=300,  # Menos steps para forzar acción
+        map_data=MAP_LVL1,  # 20x20
+        num_healthy=3,
+        num_infected=3,
+        timesteps_infected=500_000,
+        timesteps_healthy=500_000,
+        max_steps=300,
     ),
     PhaseConfig(
         phase_id=2,
         map_data=MAP_LVL2,  # 30x30
-        num_healthy=6,
-        num_infected=2,
+        num_healthy=4,
+        num_infected=4,
         timesteps_infected=700_000,
-        timesteps_healthy=500_000,
+        timesteps_healthy=700_000,
         max_steps=400,
     ),
     PhaseConfig(
         phase_id=3,
         map_data=MAP_LVL3,  # 40x40
-        num_healthy=8,
-        num_infected=2,
+        num_healthy=5,
+        num_infected=5,
         timesteps_infected=1_000_000,
-        timesteps_healthy=700_000,
+        timesteps_healthy=1_000_000,
         max_steps=500,
     ),
 ]
@@ -190,8 +190,8 @@ class SparseLoggingCallback(BaseCallback):
         # Print minimalista (heartbeat) para saber que el proceso sigue vivo
         if self.n_calls % self.heartbeat_freq == 0:
             win_rate = self.wins / self.total_episodes if self.total_episodes > 0 else 0
-            print(f"  [Phase {self.phase_id}][{self.role.upper()}] Step {self.n_calls:,} | "
-                  f"WR: {win_rate:.1%} | Eps: {self.total_episodes}")
+            print(f"  [Phase {self.phase_id}][{self.role}] Step {self.n_calls:,} | "
+                  f"WR: {win_rate:.1%} | Eps: {self.total_episodes}", flush=True)
 
         return True
 
@@ -212,12 +212,18 @@ def evaluate_models(
     render: bool = False,
     renderer=None,
     phase_id: int = 0,
+    deterministic: bool = True,
 ) -> Dict[str, float]:
     """
     Evalua el rendimiento de los modelos en modo multi-agente.
 
     Usa FlattenObservationWrapper para garantizar que las observaciones
     se aplanen EXACTAMENTE igual que durante el entrenamiento.
+
+    Args:
+        deterministic: Si True, usa predicciones determinísticas.
+                       Si False, añade estocasticidad (útil si los agentes
+                       se quedan atascados en bucles en grid worlds).
     """
     config = EnvConfig(
         map_data=map_data,
@@ -264,9 +270,9 @@ def evaluate_models(
                 obs_flat = flatten_wrapper.observation(obs_dict)
 
                 if agent.is_infected:
-                    action, _ = infected_model.predict(obs_flat, deterministic=True)
+                    action, _ = infected_model.predict(obs_flat, deterministic=deterministic)
                 else:
-                    action, _ = healthy_model.predict(obs_flat, deterministic=True)
+                    action, _ = healthy_model.predict(obs_flat, deterministic=deterministic)
                 actions[agent.id] = int(action)
 
             env.step_all(actions)
@@ -448,18 +454,29 @@ class SparseTrainer:
         phase_start = time.time()
 
         # Entrenar INFECTED primero
+        # IMPORTANTE: Si healthy_model es None (primera fase), usar heurística
+        # en lugar de un modelo aleatorio. Esto fuerza a Infected a aprender
+        # estrategias reales de persecución desde el principio.
+        infected_opponent = None if self.healthy_model is None else self.healthy_model
+
         self._log(f"\n--- Entrenando INFECTED (Phase {phase.phase_id}) ---")
+        if infected_opponent is None:
+            self._log("  Oponente: Heurística (agentes huyen activamente)")
+        else:
+            self._log("  Oponente: Modelo Healthy entrenado")
+
         self._train_role(
             phase=phase,
             role="infected",
-            opponent_model=self.healthy_model,
+            opponent_model=infected_opponent,
             timesteps=phase.timesteps_infected,
         )
         infected_path = self.output_dir / f"phase{phase.phase_id}_infected.zip"
         self.infected_model.save(infected_path)
 
-        # Entrenar HEALTHY
+        # Entrenar HEALTHY contra Infected ya entrenado
         self._log(f"\n--- Entrenando HEALTHY (Phase {phase.phase_id}) ---")
+        self._log("  Oponente: Modelo Infected entrenado")
         self._train_role(
             phase=phase,
             role="healthy",
@@ -520,8 +537,8 @@ class SparseTrainer:
         refinement_phase = PhaseConfig(
             phase_id=200,
             map_data=MAP_LVL3,
-            num_healthy=8,
-            num_infected=2,
+            num_healthy=5,
+            num_infected=5,
             timesteps_infected=ADAPTIVE_TIMESTEPS,
             timesteps_healthy=ADAPTIVE_TIMESTEPS,
             max_steps=500,
@@ -543,8 +560,8 @@ class SparseTrainer:
                 healthy_model=self.healthy_model,
                 infected_model=self.infected_model,
                 map_data=MAP_LVL3,
-                num_healthy=8,
-                num_infected=2,
+                num_healthy=5,
+                num_infected=5,
                 n_episodes=20,
                 seed=self.seed + 4000 + cycle,
                 render=self.render,
@@ -600,8 +617,8 @@ class SparseTrainer:
             healthy_model=self.healthy_model,
             infected_model=self.infected_model,
             map_data=MAP_LVL3,
-            num_healthy=8,
-            num_infected=2,
+            num_healthy=5,
+            num_infected=5,
             n_episodes=30,
             seed=self.seed + 5000,
             render=self.render,
