@@ -353,53 +353,48 @@ class SingleAgentWrapper(gym.Wrapper):
         Procesa la observación cruda al formato exacto que espera MultiInputPolicy
         ({image, vector}) para garantizar consistencia con el entrenamiento.
         """
-        try:
-            # 1. Obtener observación cruda del entorno
-            raw_obs = self.env._get_observation(agent)
+        # 1. Obtener observación cruda del entorno
+        raw_obs = self.env._get_observation(agent)
 
-            # 2. Procesar al formato MultiInputPolicy {image, vector}
-            # Imagen: normalizar a [0, 1] como float32
-            image = raw_obs["image"].astype(np.float32) / 255.0
+        # 2. Procesar al formato MultiInputPolicy {image, vector}
+        # Imagen: normalizar a [0, 1] como float32
+        image = raw_obs["image"].astype(np.float32) / 255.0
 
-            # Construir vector de features
-            parts = []
+        # Construir vector de features
+        parts = []
 
-            # Direction one-hot (4 elementos)
-            direction = np.zeros(4, dtype=np.float32)
-            direction[raw_obs["direction"]] = 1.0
-            parts.append(direction)
+        # Direction one-hot (4 elementos)
+        direction = np.zeros(4, dtype=np.float32)
+        direction[raw_obs["direction"]] = 1.0
+        parts.append(direction)
 
-            # State one-hot (2 elementos: 0=healthy, 1=infected)
-            state = np.zeros(2, dtype=np.float32)
-            state[raw_obs["state"]] = 1.0
-            parts.append(state)
+        # State one-hot (2 elementos: 0=healthy, 1=infected)
+        state = np.zeros(2, dtype=np.float32)
+        state[raw_obs["state"]] = 1.0
+        parts.append(state)
 
-            # Position (ya viene normalizada del environment: x/width, y/height)
-            position = raw_obs["position"].astype(np.float32)
-            parts.append(position)
+        # Position (ya viene normalizada del environment: x/width, y/height)
+        position = raw_obs["position"].astype(np.float32)
+        parts.append(position)
 
-            # Nearby agents (flatten)
-            nearby = raw_obs["nearby_agents"].flatten().astype(np.float32)
-            parts.append(nearby)
+        # Nearby agents (flatten)
+        nearby = raw_obs["nearby_agents"].flatten().astype(np.float32)
+        parts.append(nearby)
 
-            vector = np.concatenate(parts)
+        vector = np.concatenate(parts)
 
-            processed_obs = {
-                "image": image,
-                "vector": vector,
-            }
+        processed_obs = {
+            "image": image,
+            "vector": vector,
+        }
 
-            # 3. Predecir con el modelo oponente
-            action, _ = self._opponent_model.predict(
-                processed_obs,
-                deterministic=self.opponent_deterministic
-            )
+        # 3. Predecir con el modelo oponente
+        action, _ = self._opponent_model.predict(
+            processed_obs,
+            deterministic=self.opponent_deterministic
+        )
 
-            return int(action)
-
-        except Exception as e:
-            # Fallback a heurística si hay error (ej. desajuste de dimensiones)
-            return self._heuristic_action(agent)
+        return int(action)
 
     def _flatten_observation(self, obs: Dict[str, Any]) -> np.ndarray:
         """Aplana una observación dict a vector."""
