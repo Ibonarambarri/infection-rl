@@ -858,12 +858,31 @@ class InfectionEnv(gym.Env):
 
     def _get_info(self) -> Dict[str, Any]:
         """Retorna información adicional del estado."""
+        # Calcular métricas estadísticas
+        initial_healthy = self.config.num_agents - self.config.initial_infected
+        num_healthy = self.agents.num_healthy
+        num_infected = self.agents.num_infected
+        total_agents = self.config.num_agents
+
+        # Survival rate: proporción de sanos que siguen vivos respecto al inicio
+        survival_rate = num_healthy / initial_healthy if initial_healthy > 0 else 0.0
+
+        # Infected percentage: proporción de agentes actualmente infectados
+        infected_percentage = num_infected / total_agents if total_agents > 0 else 0.0
+
+        # Infection count: número absoluto de infecciones ocurridas
+        infection_count = len(self.infection_events)
+
         return {
             "step": self.current_step,
-            "num_healthy": self.agents.num_healthy,
-            "num_infected": self.agents.num_infected,
-            "infection_events": len(self.infection_events),
+            "num_healthy": num_healthy,
+            "num_infected": num_infected,
+            "infection_events": infection_count,
             "agents": {a.id: a.to_dict() for a in self.agents},
+            # Nuevas métricas estadísticas
+            "survival_rate": survival_rate,
+            "infected_percentage": infected_percentage,
+            "infection_count": infection_count,
         }
 
     def render(self) -> Optional[np.ndarray]:

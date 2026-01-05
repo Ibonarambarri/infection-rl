@@ -345,6 +345,11 @@ class RecordEpisodeStatisticsWrapper(gym.Wrapper):
                 info["episode"]["total_infected"] = env.num_infected
                 info["episode"]["infection_events"] = len(env.infection_events)
 
+                # Pasar las nuevas métricas estadísticas desde _get_info()
+                info["episode"]["survival_rate"] = info.get("survival_rate", 0.0)
+                info["episode"]["infected_percentage"] = info.get("infected_percentage", 0.0)
+                info["episode"]["infection_count"] = info.get("infection_count", 0)
+
         return obs, reward, terminated, truncated, info
 
 

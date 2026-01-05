@@ -34,7 +34,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 from src.maps import MAP_LVL1, MAP_LVL2, MAP_LVL3
 from src.envs import InfectionEnv, EnvConfig, RewardConfig, RewardPreset
-from src.envs.wrappers import make_vec_env_parameter_sharing
+from src.envs.wrappers import make_vec_env_parameter_sharing, FlattenObservationWrapper
 
 
 # ============================================================================
@@ -129,7 +129,7 @@ INFECTED_GLOBAL_VISION = True  # Los infectados ven a todos los healthy
 # ============================================================================
 
 class SparseLoggingCallback(BaseCallback):
-    """Callback para logging durante entrenamiento sparse."""
+    """Callback para logging durante entrenamiento sparse con TensorBoard."""
 
     def __init__(self, phase_id: int, role: str, log_freq: int = 50000, verbose: int = 1):
         super().__init__(verbose)
@@ -137,25 +137,61 @@ class SparseLoggingCallback(BaseCallback):
         self.role = role
         self.log_freq = log_freq
         self.episode_rewards = []
+        self.episode_lengths = []
+        self.survival_rates = []
+        self.infected_percentages = []
+        self.infection_counts = []
         self.wins = 0
         self.total_episodes = 0
+        self.heartbeat_freq = 100000  # Print minimalista cada 100k steps
 
     def _on_step(self) -> bool:
-        if "episode" in self.locals.get("infos", [{}])[0]:
-            info = self.locals["infos"][0]
-            episode_info = info.get("episode", {})
-            reward = episode_info.get("r", 0)
-            self.episode_rewards.append(reward)
-            self.total_episodes += 1
+        # Recopilar métricas de episodios completados
+        for info in self.locals.get("infos", []):
+            if "episode" in info:
+                episode_info = info["episode"]
+                reward = episode_info.get("r", 0)
+                length = episode_info.get("l", 0)
+                survival_rate = episode_info.get("survival_rate", 0.0)
+                infected_pct = episode_info.get("infected_percentage", 0.0)
+                infection_count = episode_info.get("infection_count", 0)
 
-            if reward > 0:
-                self.wins += 1
+                self.episode_rewards.append(reward)
+                self.episode_lengths.append(length)
+                self.survival_rates.append(survival_rate)
+                self.infected_percentages.append(infected_pct)
+                self.infection_counts.append(infection_count)
+                self.total_episodes += 1
 
+                if reward > 0:
+                    self.wins += 1
+
+        # Registrar métricas en TensorBoard cada log_freq steps
         if self.n_calls % self.log_freq == 0 and self.total_episodes > 0:
             win_rate = self.wins / self.total_episodes
-            print(f"  [Phase {self.phase_id}][{self.role.upper()}] "
-                  f"Step {self.n_calls:,}: Win rate={win_rate:.1%}, "
-                  f"Episodes={self.total_episodes}")
+
+            # Calcular métricas promedio recientes (últimos 100 episodios)
+            recent_rewards = self.episode_rewards[-100:] if self.episode_rewards else [0]
+            recent_lengths = self.episode_lengths[-100:] if self.episode_lengths else [0]
+            recent_survival = self.survival_rates[-100:] if self.survival_rates else [0]
+            recent_infected_pct = self.infected_percentages[-100:] if self.infected_percentages else [0]
+            recent_infections = self.infection_counts[-100:] if self.infection_counts else [0]
+
+            # Registrar en TensorBoard con prefijo por rol
+            role_prefix = f"train/{self.role}"
+            self.logger.record(f"{role_prefix}_win_rate", win_rate)
+            self.logger.record(f"{role_prefix}_episode_reward", np.mean(recent_rewards))
+            self.logger.record(f"{role_prefix}_episode_length", np.mean(recent_lengths))
+            self.logger.record(f"{role_prefix}_survival_rate", np.mean(recent_survival))
+            self.logger.record(f"{role_prefix}_infected_percentage", np.mean(recent_infected_pct))
+            self.logger.record(f"{role_prefix}_infection_count", np.mean(recent_infections))
+            self.logger.record(f"{role_prefix}_total_episodes", self.total_episodes)
+
+        # Print minimalista (heartbeat) para saber que el proceso sigue vivo
+        if self.n_calls % self.heartbeat_freq == 0:
+            win_rate = self.wins / self.total_episodes if self.total_episodes > 0 else 0
+            print(f"  [Phase {self.phase_id}][{self.role.upper()}] Step {self.n_calls:,} | "
+                  f"WR: {win_rate:.1%} | Eps: {self.total_episodes}")
 
         return True
 
@@ -177,7 +213,12 @@ def evaluate_models(
     renderer=None,
     phase_id: int = 0,
 ) -> Dict[str, float]:
-    """Evalua el rendimiento de los modelos."""
+    """
+    Evalua el rendimiento de los modelos en modo multi-agente.
+
+    Usa FlattenObservationWrapper para garantizar que las observaciones
+    se aplanen EXACTAMENTE igual que durante el entrenamiento.
+    """
     config = EnvConfig(
         map_data=map_data,
         num_agents=num_healthy + num_infected,
@@ -189,6 +230,9 @@ def evaluate_models(
         infected_global_vision=INFECTED_GLOBAL_VISION,
     )
     env = InfectionEnv(config)
+
+    # Crear wrapper para aplanar observaciones - garantiza compatibilidad con entrenamiento
+    flatten_wrapper = FlattenObservationWrapper(env)
 
     if render and renderer is not None:
         renderer.set_env(env)
@@ -215,11 +259,14 @@ def evaluate_models(
         while not done and step_count < max_steps:
             actions = {}
             for agent in env.agents:
-                obs = _get_flat_observation(env, agent)
+                # Obtener observación dict y aplanarla usando el wrapper
+                obs_dict = env._get_observation(agent)
+                obs_flat = flatten_wrapper.observation(obs_dict)
+
                 if agent.is_infected:
-                    action, _ = infected_model.predict(obs, deterministic=True)
+                    action, _ = infected_model.predict(obs_flat, deterministic=True)
                 else:
-                    action, _ = healthy_model.predict(obs, deterministic=True)
+                    action, _ = healthy_model.predict(obs_flat, deterministic=True)
                 actions[agent.id] = int(action)
 
             env.step_all(actions)
@@ -247,28 +294,6 @@ def evaluate_models(
     results["avg_steps"] = results["total_steps"] / n_episodes
 
     return results
-
-
-def _get_flat_observation(env: InfectionEnv, agent) -> np.ndarray:
-    """Obtiene observacion aplanada para un agente."""
-    obs_dict = env._get_observation(agent)
-    parts = []
-
-    image = obs_dict["image"].astype(np.float32) / 255.0
-    parts.append(image.flatten())
-
-    direction = np.zeros(4, dtype=np.float32)
-    direction[obs_dict["direction"]] = 1.0
-    parts.append(direction)
-
-    state = np.zeros(2, dtype=np.float32)
-    state[obs_dict["state"]] = 1.0
-    parts.append(state)
-
-    parts.append(obs_dict["position"])
-    parts.append(obs_dict["nearby_agents"].flatten())
-
-    return np.concatenate(parts)
 
 
 # ============================================================================
@@ -381,6 +406,7 @@ class SparseTrainer:
                 gae_lambda=0.98,
                 verbose=0,
                 seed=self.seed + (0 if role == "healthy" else 1000),
+                tensorboard_log="./tensorboard_logs/",
             )
             setattr(self, model_attr, new_model)
         else:
