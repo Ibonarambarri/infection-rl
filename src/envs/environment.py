@@ -305,11 +305,26 @@ class InfectionEnv(gym.Env):
         self.current_step += 1
         old_positions = {a.id: a.position for a in self.agents}
 
-        # Ejecutar todas las acciones
+        # Ejecutar acciones en orden: HEALTHY primero, luego INFECTED
+        # Esto permite que los sanos liberen casillas para que los infectados puedan ocuparlas
+        healthy_actions = []
+        infected_actions = []
+
         for agent_id, action in actions.items():
             agent = self.agents.get(agent_id)
             if agent:
-                self._execute_action(agent, action)
+                if agent.is_healthy:
+                    healthy_actions.append((agent, action))
+                else:
+                    infected_actions.append((agent, action))
+
+        # Primero ejecutar acciones de agentes HEALTHY
+        for agent, action in healthy_actions:
+            self._execute_action(agent, action)
+
+        # Después ejecutar acciones de agentes INFECTED
+        for agent, action in infected_actions:
+            self._execute_action(agent, action)
 
         # Actualizar contadores
         for agent in self.agents:

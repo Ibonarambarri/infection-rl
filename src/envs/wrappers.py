@@ -240,107 +240,45 @@ class SingleAgentWrapper(gym.Wrapper):
         """
         Ejecuta un paso con la acción del agente controlado.
 
+        Delega la ejecución a env.step_all para garantizar consistencia
+        con la evaluación (orden Healthy -> Infected).
+
         Si hay un modelo oponente, lo usa para predecir acciones del bando contrario.
 
         IMPORTANTE: Si force_role="healthy" y el agente es infectado durante este paso,
-        se fuerza terminación local para cortar el flujo de experiencia y evitar que
-        el agente aprenda de rewards de comportamiento infectado.
-
-        NOTA: La fase de DECISIÓN (calcular acciones) se hace ANTES de la fase de
-        EJECUCIÓN (mover agentes) para que todos los agentes decidan basándose en
-        el mismo estado del mundo, evitando ventajas injustas.
+        se fuerza terminación local para cortar el flujo de experiencia.
         """
         if self.env.done:
             return self._get_obs(), 0.0, True, False, self._get_info()
 
-        self.env.current_step += 1
-
-        # === FASE 1: DECISIÓN ===
-        # Calcular acciones de oponentes ANTES de mover a nadie
-        # Así todos deciden basándose en el mismo estado del mundo
+        # 1. Fase de Decisión: calcular acciones de oponentes
         other_actions = {}
         for agent in self.env.agents:
             if agent.id != self.controlled_agent_id:
                 other_actions[agent.id] = self._get_other_agent_action(agent)
 
-        # === FASE 2: EJECUCIÓN ===
-        # Guardar posiciones anteriores
-        old_positions = {a.id: a.position for a in self.env.agents}
+        # 2. Unificar acciones (controlado + oponentes)
+        all_actions = other_actions.copy()
+        all_actions[self.controlled_agent_id] = action
 
-        # Guardar estado de infección ANTES de ejecutar acciones
+        # 3. Guardar estado previo (para detectar infección)
         controlled_agent = self.env.agents.get(self.controlled_agent_id)
         was_healthy = controlled_agent is not None and controlled_agent.is_healthy
 
-        # Ejecutar acción del agente controlado
-        if controlled_agent:
-            self.env._execute_action(controlled_agent, action)
+        # 4. Ejecutar Todo (delegar en env.step_all para consistencia Healthy -> Infected)
+        obs_dict, rewards, terminated, truncated, info = self.env.step_all(all_actions)
 
-        # Ejecutar acciones de otros agentes (usando las acciones pre-calculadas)
-        for agent in self.env.agents:
-            if agent.id != self.controlled_agent_id:
-                other_action = other_actions.get(agent.id, 0)
-                self.env._execute_action(agent, other_action)
+        # 5. Procesar resultado para el agente controlado
+        reward = rewards.get(self.controlled_agent_id, 0.0)
 
-        # Actualizar contadores de movimiento
-        for agent in self.env.agents:
-            if agent.position == old_positions.get(agent.id):
-                self.env._steps_in_same_cell[agent.id] = self.env._steps_in_same_cell.get(agent.id, 0) + 1
-            else:
-                self.env._steps_in_same_cell[agent.id] = 0
-
-        self.env._last_positions = old_positions
-
-        # Detectar y ejecutar infecciones
-        new_infections = self.env._check_infections()
-
-        # Obtener agente controlado (puede haber sido transformado)
+        # Lógica de terminación forzada si cambió de rol
         controlled_agent = self.env.agents.get(self.controlled_agent_id)
-
-        # === DETECCIÓN DE CAMBIO DE ROL ===
-        # Si force_role="healthy" y el agente ERA healthy pero AHORA está infectado,
-        # forzar terminación local con penalización
-        agent_was_infected = (
-            self.force_role == "healthy" and
-            was_healthy and
-            controlled_agent is not None and
-            controlled_agent.is_infected
-        )
-
-        if agent_was_infected:
-            # Cortar flujo de experiencia: terminación forzada con penalización
+        if self.force_role == "healthy" and was_healthy and controlled_agent and controlled_agent.is_infected:
             reward = self.env.config.reward_config.reward_infected_penalty
             terminated = True
-            truncated = False
+            info["agent_infected"] = True
 
-            # Actualizar estadísticas de agentes igualmente
-            for agent in self.env.agents:
-                agent.step()
-
-            obs = self._get_obs()
-            info = self._get_info()
-            info["agent_infected"] = True  # Flag para debugging/logging
-
-            return obs, reward, terminated, truncated, info
-
-        # Calcular recompensa (flujo normal)
-        reward = self.env._calculate_reward(controlled_agent, new_infections, self.controlled_agent_id)
-
-        # Actualizar estadísticas de agentes
-        for agent in self.env.agents:
-            agent.step()
-
-        # Verificar terminación
-        terminated = self.env._check_termination()
-        truncated = self.env.current_step >= self.env.config.max_steps
-        self.env.done = terminated or truncated
-
-        if self.env.done:
-            reward += self.env._calculate_episode_end_reward(controlled_agent, terminated)
-
-        obs = self._get_obs()
-        info = self._get_info()
-
-        return obs, reward, terminated, truncated, info
+        return self._get_obs(), reward, terminated, truncated, info
 
     def _get_other_agent_action(self, agent: BaseAgent) -> int:
         """
