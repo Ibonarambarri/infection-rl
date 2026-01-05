@@ -245,12 +245,25 @@ class SingleAgentWrapper(gym.Wrapper):
         IMPORTANTE: Si force_role="healthy" y el agente es infectado durante este paso,
         se fuerza terminación local para cortar el flujo de experiencia y evitar que
         el agente aprenda de rewards de comportamiento infectado.
+
+        NOTA: La fase de DECISIÓN (calcular acciones) se hace ANTES de la fase de
+        EJECUCIÓN (mover agentes) para que todos los agentes decidan basándose en
+        el mismo estado del mundo, evitando ventajas injustas.
         """
         if self.env.done:
             return self._get_obs(), 0.0, True, False, self._get_info()
 
         self.env.current_step += 1
 
+        # === FASE 1: DECISIÓN ===
+        # Calcular acciones de oponentes ANTES de mover a nadie
+        # Así todos deciden basándose en el mismo estado del mundo
+        other_actions = {}
+        for agent in self.env.agents:
+            if agent.id != self.controlled_agent_id:
+                other_actions[agent.id] = self._get_other_agent_action(agent)
+
+        # === FASE 2: EJECUCIÓN ===
         # Guardar posiciones anteriores
         old_positions = {a.id: a.position for a in self.env.agents}
 
@@ -262,10 +275,10 @@ class SingleAgentWrapper(gym.Wrapper):
         if controlled_agent:
             self.env._execute_action(controlled_agent, action)
 
-        # Ejecutar acciones de otros agentes
+        # Ejecutar acciones de otros agentes (usando las acciones pre-calculadas)
         for agent in self.env.agents:
             if agent.id != self.controlled_agent_id:
-                other_action = self._get_other_agent_action(agent)
+                other_action = other_actions.get(agent.id, 0)
                 self.env._execute_action(agent, other_action)
 
         # Actualizar contadores de movimiento
