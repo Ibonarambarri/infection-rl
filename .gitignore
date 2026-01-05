@@ -27,12 +27,6 @@ env/
 models/
 *.zip
 
-# Logs
-logs/
-tensorboard/
-*.log
-evaluations/
-
 # OS
 .DS_Store
 Thumbs.db
