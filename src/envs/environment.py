@@ -426,16 +426,16 @@ class InfectionEnv(gym.Env):
         return reward
 
     def _calculate_healthy_reward(self, agent: HealthyAgent) -> float:
-        """Calcula recompensa para HealthyAgent usando pathfinding."""
+        """Calcula recompensa para HealthyAgent usando distancia Manhattan."""
         rc = self.config.reward_config
         reward = rc.reward_survive_step
 
-        # Bonus por distancia a infectados (usando pathfinding real)
+        # Bonus por distancia a infectados (usando distancia Manhattan)
         if rc.reward_distance_bonus > 0:
             nearest_infected = self.agents.find_nearest_infected(agent)
             if nearest_infected:
-                # Usar pathfinding distance (siempre retorna valor)
-                distance = self._get_pathfinding_distance(agent.position, nearest_infected.position)
+                # Usar distancia Manhattan (más eficiente que BFS)
+                distance = agent.distance_to(nearest_infected)
                 max_dist = self.width + self.height
                 # Normalizar: más distancia = más bonus
                 distance_ratio = min(distance / max_dist, 1.0)
@@ -453,12 +453,12 @@ class InfectionEnv(gym.Env):
 
     def _calculate_infected_reward(self, agent: InfectedAgent, new_infections: List[int]) -> float:
         """
-        Calcula recompensa para InfectedAgent usando pathfinding.
+        Calcula recompensa para InfectedAgent usando distancia Manhattan.
 
         El sistema premia:
         - Infectar agentes (reward_infect_agent)
         - Proximidad al healthy más cercano (reward_approach_bonus)
-        - Progreso: reducir la distancia BFS (reward_progress_bonus)
+        - Progreso: reducir la distancia Manhattan (reward_progress_bonus)
 
         Y penaliza:
         - No hacer progreso (reward_no_progress_penalty)
@@ -472,25 +472,25 @@ class InfectionEnv(gym.Env):
             if event["step"] == self.current_step and event["infected_by"] == agent.id:
                 reward += rc.reward_infect_agent
 
-        # Calcular distancia BFS al healthy mas cercano
+        # Calcular distancia Manhattan al healthy mas cercano
         nearest_healthy = self.agents.find_nearest_healthy(agent)
         if nearest_healthy:
-            # Usar pathfinding (siempre retorna valor)
-            current_distance = self._get_pathfinding_distance(agent.position, nearest_healthy.position)
+            # Usar distancia Manhattan (más eficiente que BFS)
+            current_distance = agent.distance_to(nearest_healthy)
             max_dist = self.width + self.height
 
-            # Bonus por proximidad (basado en distancia real de pathfinding)
+            # Bonus por proximidad (basado en distancia Manhattan)
             if rc.reward_approach_bonus > 0:
                 proximity = max(0, (max_dist - current_distance) / max_dist)
                 reward += rc.reward_approach_bonus * proximity
 
-            # Bonus/penalty por PROGRESO en pathfinding
+            # Bonus/penalty por PROGRESO en distancia
             prev_distance = self._prev_distances.get(agent.id)
             if prev_distance is not None:
                 progress = prev_distance - current_distance  # Positivo = se acercó
 
                 if progress > 0:
-                    # Bonus por acercarse (premiar cada paso que reduce distancia BFS)
+                    # Bonus por acercarse (premiar cada paso que reduce distancia)
                     progress_bonus = getattr(rc, 'reward_progress_bonus', 0.0)
                     if progress_bonus > 0:
                         reward += progress_bonus * progress

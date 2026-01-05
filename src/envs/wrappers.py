@@ -538,7 +538,7 @@ def make_vec_env_parameter_sharing(
                 opponent_model=opponent_model,
                 opponent_deterministic=opponent_deterministic,
                 max_steps=max_steps,
-                flatten=True,
+                flatten=False,
                 reward_config=reward_config,
                 infected_speed=infected_speed,
                 infected_global_vision=infected_global_vision,
