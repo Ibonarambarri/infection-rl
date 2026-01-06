@@ -39,7 +39,7 @@ class EnvConfig:
 
     # Vista circular del agente
     view_radius: int = 7  # Radio de visión (diámetro = 2*radius + 1 = 15)
-    max_nearby_agents: int = 8
+    max_nearby_agents: int = 12  # Aumentado de 8 para cubrir 8h + 2i + margen
 
     # Ventajas para infectados (para balancear el juego)
     infected_speed: int = 1  # Celdas por movimiento (1 = normal, 2 = doble velocidad)
@@ -166,7 +166,7 @@ class InfectionEnv(gym.Env):
             "position": spaces.Box(low=0, high=100, shape=(2,), dtype=np.float32),
             "nearby_agents": spaces.Box(
                 low=-1, high=1,
-                shape=(config.max_nearby_agents, 4),
+                shape=(config.max_nearby_agents, 5),  # +1 para direction
                 dtype=np.float32
             ),
         })
@@ -472,12 +472,14 @@ class InfectionEnv(gym.Env):
 
         El sistema premia:
         - Infectar agentes (reward_infect_agent)
-        - Proximidad al healthy más cercano (reward_approach_bonus)
-        - Progreso: reducir la distancia Manhattan (reward_progress_bonus)
+        - Progreso: REDUCIR la distancia Manhattan (reward_progress_bonus)
 
         Y penaliza:
-        - No hacer progreso (reward_no_progress_penalty)
+        - No hacer progreso o alejarse (reward_no_progress_penalty)
         - Quedarse quieto (reward_not_moving_penalty)
+
+        NOTA: approach_bonus fue eliminado porque premiaba proximidad,
+        no progreso. Causaba que infectados orbitaran sin atrapar.
         """
         rc = self.config.reward_config
         reward = 0.0
@@ -543,12 +545,27 @@ class InfectionEnv(gym.Env):
         return reward
 
     def _calculate_episode_end_reward(self, agent: BaseAgent, all_infected: bool) -> float:
-        """Calcula bonus de fin de episodio."""
+        """
+        Calcula bonus de fin de episodio.
+
+        Infected reciben bonus parcial proporcional a cuantos infectaron,
+        no solo si infectan a TODOS. Esto evita el cliff-edge reward.
+        """
         rc = self.config.reward_config
         if isinstance(agent, HealthyAgent):
             return rc.reward_survive_episode
-        elif isinstance(agent, InfectedAgent) and all_infected:
-            return rc.reward_all_infected_bonus
+        elif isinstance(agent, InfectedAgent):
+            # Bonus completo si infectaron a todos
+            if all_infected:
+                return rc.reward_all_infected_bonus
+            # Bonus parcial proporcional a infecciones logradas
+            # Cada infeccion vale una fraccion del bonus total
+            total_infections = len(self.infection_events)
+            initial_healthy = self.config.num_agents - self.config.initial_infected
+            if initial_healthy > 0 and total_infections > 0:
+                infection_ratio = total_infections / initial_healthy
+                partial_bonus = rc.reward_all_infected_bonus * infection_ratio * 0.5
+                return partial_bonus
         return 0.0
 
     def _get_other_agent_action(self, agent: BaseAgent) -> int:
@@ -794,11 +811,16 @@ class InfectionEnv(gym.Env):
         """
         Información de agentes cercanos.
 
-        Si el agente es infectado y tiene visión global, prioriza mostrar
-        TODOS los healthy agents (para que sepa dónde están todos).
+        Cada agente tiene 5 features:
+        - rel_x, rel_y: posición relativa normalizada
+        - is_infected: 0.0 o 1.0
+        - dist_norm: distancia normalizada
+        - direction_norm: dirección normalizada (0.0, 0.25, 0.5, 0.75 para UP/RIGHT/DOWN/LEFT)
+
+        Si el agente es infectado con visión global, prioriza healthy agents.
         """
         max_agents = self.config.max_nearby_agents
-        info = np.zeros((max_agents, 4), dtype=np.float32)
+        info = np.zeros((max_agents, 5), dtype=np.float32)
         max_dist = self.width + self.height
 
         others = [(a, agent.distance_to(a)) for a in self.agents if a.id != agent.id]
@@ -821,7 +843,9 @@ class InfectionEnv(gym.Env):
             rel_y = (other.y - agent.y) / self.height
             is_infected = 1.0 if other.is_infected else 0.0
             dist_norm = dist / max_dist
-            info[i] = [rel_x, rel_y, is_infected, dist_norm]
+            # Dirección normalizada: UP=0, RIGHT=0.25, DOWN=0.5, LEFT=0.75
+            direction_norm = other.direction.value / 4.0
+            info[i] = [rel_x, rel_y, is_infected, dist_norm, direction_norm]
 
         return info
 

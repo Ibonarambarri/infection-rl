@@ -34,6 +34,22 @@ from src.envs.wrappers import make_vec_env_parameter_sharing
 
 
 # ============================================================================
+# Learning Rate Schedule
+# ============================================================================
+
+def linear_schedule(initial_lr: float, final_lr: float = 5e-5):
+    """
+    Linear learning rate schedule.
+
+    Decae linealmente desde initial_lr hasta final_lr.
+    """
+    def schedule(progress_remaining: float) -> float:
+        # progress_remaining va de 1.0 (inicio) a 0.0 (fin)
+        return final_lr + progress_remaining * (initial_lr - final_lr)
+    return schedule
+
+
+# ============================================================================
 # Configuracion de Rewards por Fase (Curriculum)
 # ============================================================================
 
@@ -77,34 +93,43 @@ class PhaseConfig:
         return get_reward_config_for_phase(self.phase_id)
 
 
-# Curriculum progresivo: mapas pequeños → grandes
+# Curriculum progresivo para deployment 8 healthy vs 2 infected
 # Rewards: DENSE → INTERMEDIATE → SPARSE
 CURRICULUM_PHASES: List[PhaseConfig] = [
     PhaseConfig(
         phase_id=1,
         map_data=MAP_LVL1,  # 20x20
-        num_healthy=3,
-        num_infected=3,
-        total_timesteps=1_000_000,  # 500k por rol
-        max_steps=300,
+        num_healthy=1,      # 1v2 ventaja infected - aprende a cazar
+        num_infected=2,
+        total_timesteps=800_000,
+        max_steps=150,      # Episodios cortos = más iteraciones
         ping_pong_interval=50_000,
     ),
     PhaseConfig(
         phase_id=2,
-        map_data=MAP_LVL2,  # 30x30
-        num_healthy=4,
-        num_infected=4,
-        total_timesteps=1_400_000,  # 700k por rol
-        max_steps=400,
+        map_data=MAP_LVL1,  # 20x20
+        num_healthy=2,      # 2v2 equilibrado
+        num_infected=2,
+        total_timesteps=1_000_000,
+        max_steps=200,
         ping_pong_interval=50_000,
     ),
     PhaseConfig(
         phase_id=3,
+        map_data=MAP_LVL2,  # 30x30
+        num_healthy=4,      # 4v2 transición
+        num_infected=2,
+        total_timesteps=1_200_000,
+        max_steps=300,
+        ping_pong_interval=50_000,
+    ),
+    PhaseConfig(
+        phase_id=4,
         map_data=MAP_LVL3,  # 40x40
-        num_healthy=5,
-        num_infected=5,
-        total_timesteps=2_000_000,  # 1M por rol
-        max_steps=500,
+        num_healthy=8,      # 8v2 target deployment
+        num_infected=2,
+        total_timesteps=1_500_000,
+        max_steps=400,
         ping_pong_interval=50_000,
     ),
 ]
@@ -165,7 +190,12 @@ class SimpleLoggingCallback(BaseCallback):
 
                 # Victoria basada en supervivencia real, no en reward
                 # healthy_survived: número de agentes sanos que quedaron vivos
-                healthy_survived = episode_info.get("healthy_survived", 0)
+                # FIX: No asumir default 0 (causaba 100% win rate falso para infected)
+                healthy_survived = episode_info.get("healthy_survived")
+
+                if healthy_survived is None:
+                    # Key missing - no contar como victoria para ninguno
+                    continue
 
                 if self.role.upper() == "HEALTHY":
                     # Healthy gana si sobrevive (healthy_survived > 0)
@@ -277,9 +307,9 @@ def evaluate_models(
         # Construir vector de features
         parts = []
 
-        # Direction one-hot (4 elementos)
-        direction = np.zeros(4, dtype=np.float32)
-        direction[raw_obs["direction"]] = 1.0
+        # Direction como encoding circular [cos, sin] (2 elementos)
+        angle = raw_obs["direction"] * (np.pi / 2)  # 0, pi/2, pi, 3pi/2
+        direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
         parts.append(direction)
 
         # State one-hot (2 elementos: 0=healthy, 1=infected)
@@ -291,7 +321,7 @@ def evaluate_models(
         position = raw_obs["position"].astype(np.float32)
         parts.append(position)
 
-        # Nearby agents (flatten)
+        # Nearby agents (5 features por agente)
         nearby = raw_obs["nearby_agents"].flatten().astype(np.float32)
         parts.append(nearby)
 
@@ -455,11 +485,11 @@ class PingPongTrainer:
         return PPO(
             "MultiInputPolicy",  # CNN para imagen + MLP para vector
             vec_env,
-            learning_rate=1e-4,
+            learning_rate=linear_schedule(1e-4, 5e-5),  # Decae de 1e-4 a 5e-5
             n_steps=4096,  # Horizonte largo para sparse rewards
             batch_size=128,
             n_epochs=10,
-            gamma=0.999,
+            gamma=0.995,  # Reducido de 0.999 para mejor credit assignment
             ent_coef=0.05,  # Mayor exploración para sparse rewards
             clip_range=0.2,
             gae_lambda=0.98,
@@ -608,21 +638,23 @@ class PingPongTrainer:
                 self._log("  Primera ronda: entrenando ambos agentes")
 
             # === DECISIÓN ADAPTATIVA ===
-            if healthy_wr < WEAK_THRESHOLD:
-                # Healthy muy débil → entrenar SOLO healthy
+            # Siempre entrenar al más débil para balancear
+            balance_margin = 0.05  # 5% de diferencia = equilibrado
+            if abs(healthy_wr - infected_wr) < balance_margin:
+                # Muy equilibrado → entrenar ambos
+                train_healthy = True
+                train_infected = True
+                decision = f"Equilibrado ({healthy_wr:.0%} vs {infected_wr:.0%}) → Entrenando AMBOS"
+            elif healthy_wr < infected_wr:
+                # Healthy más débil → entrenar SOLO healthy
                 train_healthy = True
                 train_infected = False
-                decision = f"HEALTHY débil ({healthy_wr:.0%}) → Entrenando SOLO Healthy"
-            elif infected_wr < WEAK_THRESHOLD:
-                # Infected muy débil → entrenar SOLO infected
+                decision = f"HEALTHY más débil ({healthy_wr:.0%} vs {infected_wr:.0%}) → Entrenando SOLO Healthy"
+            else:
+                # Infected más débil → entrenar SOLO infected
                 train_healthy = False
                 train_infected = True
-                decision = f"INFECTED débil ({infected_wr:.0%}) → Entrenando SOLO Infected"
-            else:
-                # Equilibrado → entrenar ambos
-                train_healthy = True
-                train_infected = True
-                decision = f"Equilibrado → Entrenando AMBOS"
+                decision = f"INFECTED más débil ({infected_wr:.0%} vs {healthy_wr:.0%}) → Entrenando SOLO Infected"
 
             self._log(f"  Decisión: {decision}")
 
@@ -750,16 +782,18 @@ class PingPongTrainer:
 
             self._log(f"  Healthy: {healthy_wr:.1%}, Infected: {infected_wr:.1%}")
 
-            # Decidir quién entrenar
-            if infected_wr > ADAPTIVE_THRESHOLD:
+            # Decidir quién entrenar (siempre el más débil)
+            balance_margin = 0.05
+            if abs(healthy_wr - infected_wr) < balance_margin:
+                # Muy equilibrado → alternar (infected en ciclos impares)
+                role_to_train = "infected" if cycle % 2 == 1 else "healthy"
+                reason = f"Equilibrado ({healthy_wr:.0%} vs {infected_wr:.0%}) → alternando"
+            elif healthy_wr < infected_wr:
                 role_to_train = "healthy"
-                reason = f"Infected dominan ({infected_wr:.0%})"
-            elif healthy_wr > ADAPTIVE_THRESHOLD:
-                role_to_train = "infected"
-                reason = f"Healthy dominan ({healthy_wr:.0%})"
+                reason = f"Healthy más débil ({healthy_wr:.0%} vs {infected_wr:.0%})"
             else:
                 role_to_train = "infected"
-                reason = "Equilibrado → infected por defecto"
+                reason = f"Infected más débil ({infected_wr:.0%} vs {healthy_wr:.0%})"
 
             self._log(f"  Entrenando: {role_to_train.upper()} ({reason})")
 

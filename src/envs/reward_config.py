@@ -3,12 +3,13 @@ Configuracion de Rewards Progresivos
 ====================================
 Sistema de rewards que progresa de sparse a dense segun la fase del curriculum.
 
-IMPORTANTE: Los infected necesitan rewards mas agresivos porque:
-1. Estan en desventaja numerica (2 vs 8)
-2. Necesitan coordinar para acorralar presas
-3. Los healthy aprenden a huir muy rapido
+Curriculum para deployment 8 healthy vs 2 infected:
+- SPARSE (Fase 1): Solo victoria/derrota - aprender objetivo final
+- INTERMEDIATE (Fase 2): Rewards de progreso - aprender pathfinding
+- DENSE (Fase 3): Sistema completo - fine-tuning
 
-Solucion: Dar rewards de approach desde el principio y aumentar bonus de infeccion.
+IMPORTANTE: Usamos progress_bonus (reduccion de distancia) en lugar de
+approach_bonus (proximidad) para evitar que infectados orbiten sin atrapar.
 """
 
 from dataclasses import dataclass
@@ -29,16 +30,16 @@ class RewardConfig:
     Configuracion de rewards para el entorno de infeccion.
 
     Soporta 3 presets para curriculum learning:
-    - SPARSE: Solo rewards de victoria/derrota (fase 1)
-    - INTERMEDIATE: Rewards intermedios al 50% (fase 2)
-    - DENSE: Sistema completo de rewards (fase 3)
+    - SPARSE: Solo rewards de victoria/derrota (verdaderamente sparse)
+    - INTERMEDIATE: Rewards de progreso (progress_bonus para pathfinding)
+    - DENSE: Sistema completo de rewards (fine-tuning)
 
-    CAMBIOS v2 (mejora de infected):
-    - Infected reciben approach_bonus desde SPARSE (aprender a perseguir temprano)
-    - Aumentado reward_infect_agent: 15 -> 25
-    - Aumentado reward_all_infected_bonus: 20 -> 35
-    - Aumentado reward_approach_bonus en todas las fases
-    - Añadido reward_no_progress_penalty para infected pasivos
+    CAMBIOS v3 (normalizacion y fix de incentivos):
+    - SPARSE ahora es verdaderamente sparse (sin rewards por paso)
+    - Eliminado approach_bonus (causaba orbiting sin atrapar)
+    - Solo usamos progress_bonus (premia REDUCIR distancia, no proximidad)
+    - Normalizado reward_infect_agent: 25 -> 10
+    - Normalizado reward_all_infected_bonus: 35 -> 15
     """
 
     # Preset base (define defaults)
@@ -73,7 +74,7 @@ class RewardConfig:
         """Retorna los valores por defecto segun el preset."""
         if self.preset == RewardPreset.SPARSE:
             return {
-                # Sanos - Solo victoria/derrota
+                # Sanos - SOLO victoria/derrota (verdaderamente sparse)
                 "reward_survive_step": 0.0,
                 "reward_distance_bonus": 0.0,
                 "reward_infected_penalty": -10.0,
@@ -81,14 +82,14 @@ class RewardConfig:
                 "reward_stuck_penalty": 0.0,
                 "stuck_threshold": 3,
                 "reward_survive_episode": 10.0,
-                # Infectados - Victoria + approach basico (CLAVE: aprender a perseguir)
-                "reward_infect_agent": 25.0,  # Aumentado de 15
-                "reward_approach_bonus": 0.15,  # NUEVO: dar feedback de approach desde fase 1
+                # Infectados - SOLO victoria/derrota (verdaderamente sparse)
+                "reward_infect_agent": 10.0,  # Reducido de 25 para balance
+                "reward_approach_bonus": 0.0,  # Sin rewards por paso (sparse)
                 "reward_step_penalty": 0.0,
-                "reward_all_infected_bonus": 35.0,  # Aumentado de 20
+                "reward_all_infected_bonus": 15.0,  # Reducido de 35 para balance
                 "reward_exploration": 0.0,
-                "reward_no_progress_penalty": -0.05,  # Penalizar no acercarse
-                "reward_progress_bonus": 0.05,  # Bonus por acercarse (pathfinding)
+                "reward_no_progress_penalty": 0.0,  # Sin penalties por paso (sparse)
+                "reward_progress_bonus": 0.0,  # Sin rewards por paso (sparse)
             }
         elif self.preset == RewardPreset.INTERMEDIATE:
             return {
@@ -100,14 +101,14 @@ class RewardConfig:
                 "reward_stuck_penalty": 0.0,
                 "stuck_threshold": 3,
                 "reward_survive_episode": 7.5,
-                # Infectados - Approach mas fuerte
-                "reward_infect_agent": 25.0,  # Aumentado de 15
-                "reward_approach_bonus": 0.25,  # Aumentado de 0.1
+                # Infectados - Rewards intermedios
+                "reward_infect_agent": 10.0,  # Normalizado
+                "reward_approach_bonus": 0.0,  # Solo progress, no proximity
                 "reward_step_penalty": 0.0,
-                "reward_all_infected_bonus": 35.0,  # Aumentado de 20
+                "reward_all_infected_bonus": 15.0,  # Normalizado
                 "reward_exploration": 0.01,
-                "reward_no_progress_penalty": -0.08,  # Penalizar mas
-                "reward_progress_bonus": 0.1,  # Bonus por acercarse (pathfinding)
+                "reward_no_progress_penalty": -0.1,   # Aumentado
+                "reward_progress_bonus": 0.2,  # Bonus por REDUCIR distancia (aumentado)
             }
         else:  # DENSE (default) - Sistema completo
             return {
@@ -119,14 +120,14 @@ class RewardConfig:
                 "reward_stuck_penalty": -0.2,
                 "stuck_threshold": 3,
                 "reward_survive_episode": 5.0,
-                # Infectados - Maxima agresividad
-                "reward_infect_agent": 25.0,  # Aumentado de 15
-                "reward_approach_bonus": 0.35,  # Aumentado de 0.2
+                # Infectados - Sistema completo normalizado
+                "reward_infect_agent": 10.0,  # Normalizado de 25
+                "reward_approach_bonus": 0.0,  # Solo progress, no proximity
                 "reward_step_penalty": -0.01,
-                "reward_all_infected_bonus": 35.0,  # Aumentado de 20
+                "reward_all_infected_bonus": 15.0,  # Normalizado de 35
                 "reward_exploration": 0.02,
-                "reward_no_progress_penalty": -0.1,  # Maxima penalizacion
-                "reward_progress_bonus": 0.15,  # Bonus por acercarse (pathfinding)
+                "reward_no_progress_penalty": -0.15,  # Penalty por alejarse (aumentado)
+                "reward_progress_bonus": 0.4,  # Bonus por REDUCIR distancia (aumentado 2x)
             }
 
     @classmethod

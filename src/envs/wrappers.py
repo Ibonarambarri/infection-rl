@@ -31,10 +31,10 @@ class FlattenObservationWrapper(gym.ObservationWrapper):
 
         # Vista circular: 2 canales (tipo + distancia)
         image_size = view_size * view_size * 2
-        direction_size = 4
+        direction_size = 2  # Circular encoding [cos, sin]
         state_size = 2
         position_size = 2
-        nearby_size = config.max_nearby_agents * 4
+        nearby_size = config.max_nearby_agents * 5  # 5 features por agente
 
         total_size = image_size + direction_size + state_size + position_size + nearby_size
 
@@ -54,8 +54,9 @@ class FlattenObservationWrapper(gym.ObservationWrapper):
         image = obs["image"].astype(np.float32) / 255.0
         parts.append(image.flatten())
 
-        direction = np.zeros(4, dtype=np.float32)
-        direction[obs["direction"]] = 1.0
+        # Direction como encoding circular [cos, sin]
+        angle = obs["direction"] * (np.pi / 2)  # 0, pi/2, pi, 3pi/2
+        direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
         parts.append(direction)
 
         state = np.zeros(2, dtype=np.float32)
@@ -88,10 +89,10 @@ class DictObservationWrapper(gym.ObservationWrapper):
         view_size = config.view_size
 
         # Calcular tamaño del vector concatenado
-        direction_size = 4  # one-hot
+        direction_size = 2  # Circular encoding [cos, sin]
         state_size = 2  # one-hot
         position_size = 2
-        nearby_size = config.max_nearby_agents * 4
+        nearby_size = config.max_nearby_agents * 5  # 5 features por agente
 
         vector_size = direction_size + state_size + position_size + nearby_size
 
@@ -119,9 +120,9 @@ class DictObservationWrapper(gym.ObservationWrapper):
         # Construir vector de features
         parts = []
 
-        # Direction one-hot
-        direction = np.zeros(4, dtype=np.float32)
-        direction[obs["direction"]] = 1.0
+        # Direction como encoding circular [cos, sin]
+        angle = obs["direction"] * (np.pi / 2)  # 0, pi/2, pi, 3pi/2
+        direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
         parts.append(direction)
 
         # State one-hot
@@ -133,7 +134,7 @@ class DictObservationWrapper(gym.ObservationWrapper):
         position = obs["position"].astype(np.float32)
         parts.append(position)
 
-        # Nearby agents
+        # Nearby agents (ahora con 5 features por agente)
         parts.append(obs["nearby_agents"].flatten().astype(np.float32))
 
         vector = np.concatenate(parts)
@@ -314,9 +315,9 @@ class SingleAgentWrapper(gym.Wrapper):
         # Construir vector de features
         parts = []
 
-        # Direction one-hot (4 elementos)
-        direction = np.zeros(4, dtype=np.float32)
-        direction[raw_obs["direction"]] = 1.0
+        # Direction como encoding circular [cos, sin]
+        angle = raw_obs["direction"] * (np.pi / 2)
+        direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
         parts.append(direction)
 
         # State one-hot (2 elementos: 0=healthy, 1=infected)
@@ -328,7 +329,7 @@ class SingleAgentWrapper(gym.Wrapper):
         position = raw_obs["position"].astype(np.float32)
         parts.append(position)
 
-        # Nearby agents (flatten)
+        # Nearby agents (5 features por agente)
         nearby = raw_obs["nearby_agents"].flatten().astype(np.float32)
         parts.append(nearby)
 
@@ -355,8 +356,9 @@ class SingleAgentWrapper(gym.Wrapper):
         image = obs["image"].astype(np.float32) / 255.0
         parts.append(image.flatten())
 
-        direction = np.zeros(4, dtype=np.float32)
-        direction[obs["direction"]] = 1.0
+        # Direction como encoding circular [cos, sin]
+        angle = obs["direction"] * (np.pi / 2)
+        direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
         parts.append(direction)
 
         state = np.zeros(2, dtype=np.float32)
@@ -571,16 +573,28 @@ class RecordEpisodeStatisticsWrapper(gym.Wrapper):
                 "l": self.current_length,
             }
 
-            if hasattr(self.env.unwrapped, "agents"):
+            # FIX: Propagar healthy_survived desde info existente (viene de step_all -> _get_info)
+            # Esto asegura que siempre se incluya, incluso con SubprocVecEnv
+            if "num_healthy" in info:
+                info["episode"]["healthy_survived"] = info["num_healthy"]
+            elif hasattr(self.env.unwrapped, "agents"):
                 env = self.env.unwrapped
                 info["episode"]["healthy_survived"] = env.num_healthy
+            else:
+                # Fallback: usar healthy_survived binario del _get_info si existe
+                if "healthy_survived" in info:
+                    info["episode"]["healthy_survived"] = info["healthy_survived"]
+
+            # Propagar resto de métricas
+            if hasattr(self.env.unwrapped, "agents"):
+                env = self.env.unwrapped
                 info["episode"]["total_infected"] = env.num_infected
                 info["episode"]["infection_events"] = len(env.infection_events)
 
-                # Pasar las nuevas métricas estadísticas desde _get_info()
-                info["episode"]["survival_rate"] = info.get("survival_rate", 0.0)
-                info["episode"]["infected_percentage"] = info.get("infected_percentage", 0.0)
-                info["episode"]["infection_count"] = info.get("infection_count", 0)
+            # Pasar las nuevas métricas estadísticas desde _get_info()
+            info["episode"]["survival_rate"] = info.get("survival_rate", 0.0)
+            info["episode"]["infected_percentage"] = info.get("infected_percentage", 0.0)
+            info["episode"]["infection_count"] = info.get("infection_count", 0)
 
         return obs, reward, terminated, truncated, info
 
