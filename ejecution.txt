@@ -1,0 +1,692 @@
+python scripts/train.py --output-dir models/curriculum_v3 --n-envs 4 --seed 42
+[01:22:00] ============================================================
+[01:22:00] ENTRENAMIENTO PING-PONG + CURRICULUM
+[01:22:00] ============================================================
+[01:22:00]   Fases: 4
+[01:22:00]   Fase inicial: 1
+[01:22:00]   Curriculum: DENSE -> INTERMEDIATE -> SPARSE
+[01:22:00]   Output: models/curriculum_v3
+[01:22:00] ============================================================
+[01:22:00] ============================================================
+[01:22:00] FASE 1 (DENSE REWARDS)
+[01:22:00]   Mapa: 3 agentes (1H vs 2I)
+[01:22:00]   Max steps: 150
+[01:22:00]   Total timesteps: 800,000
+[01:22:00]   Adaptive interval: 50,000
+[01:22:00] ============================================================
+[01:22:00] 
+Adaptive Self-Play: 8 rondas de 50,000 steps
+[01:22:00] 
+──────────────────────────────────────────────────
+[01:22:00] RONDA 1/8
+[01:22:00] ──────────────────────────────────────────────────
+[01:22:00]   Primera ronda: entrenando ambos agentes
+[01:22:00]   Decisión: Equilibrado (50% vs 50%) → Entrenando AMBOS
+[01:22:00]   Training INFECTED... (vs Heuristic)
+[Phase 1][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: -30.6 | FPS: 741
+[Phase 1][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: -17.2 | FPS: 747
+[01:22:39]   Training HEALTHY... (vs Model)
+[Phase 1][HEALTHY] Step: 10,000 | Win Rate: 0% | Mean Reward: -18.8 | FPS: 962
+[Phase 1][HEALTHY] Step: 20,000 | Win Rate: 0% | Mean Reward: -10.2 | FPS: 962
+[Phase 1][HEALTHY] Step: 30,000 | Win Rate: 0% | Mean Reward: -5.8 | FPS: 929
+[Phase 1][HEALTHY] Step: 40,000 | Win Rate: 0% | Mean Reward: -7.4 | FPS: 959
+[Phase 1][HEALTHY] Step: 50,000 | Win Rate: 0% | Mean Reward: -6.9 | FPS: 932
+[01:23:36] 
+──────────────────────────────────────────────────
+[01:23:36] RONDA 2/8
+[01:23:36] ──────────────────────────────────────────────────
+[01:23:36]   Evaluando balance actual...
+[01:23:38]   Win Rates: Healthy=95% | Infected=5%
+[01:23:38]   Decisión: INFECTED más débil (5% vs 95%) → Entrenando SOLO Infected
+[01:23:38]   Training INFECTED... (vs Model)
+[Phase 1][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: -11.0 | FPS: 574
+[Phase 1][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: -9.7 | FPS: 570
+[01:24:29] 
+──────────────────────────────────────────────────
+[01:24:29] RONDA 3/8
+[01:24:29] ──────────────────────────────────────────────────
+[01:24:29]   Evaluando balance actual...
+[01:24:31]   Win Rates: Healthy=80% | Infected=20%
+[01:24:31]   Decisión: INFECTED más débil (20% vs 80%) → Entrenando SOLO Infected
+[01:24:31]   Training INFECTED... (vs Model)
+[Phase 1][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: -9.2 | FPS: 566
+[Phase 1][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: -11.0 | FPS: 567
+[01:25:23] 
+──────────────────────────────────────────────────
+[01:25:23] RONDA 4/8
+[01:25:23] ──────────────────────────────────────────────────
+[01:25:23]   Evaluando balance actual...
+[01:25:25]   Win Rates: Healthy=90% | Infected=10%
+[01:25:25]   Decisión: INFECTED más débil (10% vs 90%) → Entrenando SOLO Infected
+[01:25:25]   Training INFECTED... (vs Model)
+[Phase 1][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: -8.6 | FPS: 562
+[Phase 1][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: -11.9 | FPS: 562
+[01:26:17] 
+──────────────────────────────────────────────────
+[01:26:17] RONDA 5/8
+[01:26:17] ──────────────────────────────────────────────────
+[01:26:17]   Evaluando balance actual...
+[01:26:20]   Win Rates: Healthy=85% | Infected=15%
+[01:26:20]   Decisión: INFECTED más débil (15% vs 85%) → Entrenando SOLO Infected
+[01:26:20]   Training INFECTED... (vs Model)
+[Phase 1][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: -7.7 | FPS: 562
+[Phase 1][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: -8.8 | FPS: 562
+[01:27:11] 
+──────────────────────────────────────────────────
+[01:27:11] RONDA 6/8
+[01:27:11] ──────────────────────────────────────────────────
+[01:27:11]   Evaluando balance actual...
+[01:27:14]   Win Rates: Healthy=85% | Infected=15%
+[01:27:14]   Decisión: INFECTED más débil (15% vs 85%) → Entrenando SOLO Infected
+[01:27:14]   Training INFECTED... (vs Model)
+[Phase 1][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: -7.9 | FPS: 562
+[Phase 1][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: -7.5 | FPS: 559
+[01:28:06] 
+──────────────────────────────────────────────────
+[01:28:06] RONDA 7/8
+[01:28:06] ──────────────────────────────────────────────────
+[01:28:06]   Evaluando balance actual...
+[01:28:08]   Win Rates: Healthy=85% | Infected=15%
+[01:28:08]   Decisión: INFECTED más débil (15% vs 85%) → Entrenando SOLO Infected
+[01:28:08]   Training INFECTED... (vs Model)
+[Phase 1][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: -7.5 | FPS: 562
+[Phase 1][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: -6.9 | FPS: 559
+[01:29:00] 
+──────────────────────────────────────────────────
+[01:29:00] RONDA 8/8
+[01:29:00] ──────────────────────────────────────────────────
+[01:29:00]   Evaluando balance actual...
+[01:29:02]   Win Rates: Healthy=80% | Infected=20%
+[01:29:02]   Decisión: INFECTED más débil (20% vs 80%) → Entrenando SOLO Infected
+[01:29:02]   Training INFECTED... (vs Model)
+[Phase 1][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: -8.8 | FPS: 557
+[Phase 1][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: -9.3 | FPS: 558
+[01:29:55] 
+--- Evaluación Final Phase 1 ---
+[01:29:58]   Healthy Win Rate: 80.0%
+[01:29:58]   Infected Win Rate: 20.0%
+[01:29:58]   Avg Steps: 121.7
+[01:29:58]   Tiempo: 8.0 minutos
+[01:29:58] ============================================================
+[01:29:58] FASE 2 (INTERMEDIATE REWARDS)
+[01:29:58]   Mapa: 4 agentes (2H vs 2I)
+[01:29:58]   Max steps: 200
+[01:29:58]   Total timesteps: 1,000,000
+[01:29:58]   Adaptive interval: 50,000
+[01:29:58] ============================================================
+[01:29:58] 
+Adaptive Self-Play: 10 rondas de 50,000 steps
+[01:29:58] 
+──────────────────────────────────────────────────
+[01:29:58] RONDA 1/10
+[01:29:58] ──────────────────────────────────────────────────
+[01:29:58]   Evaluando balance actual...
+[01:30:03]   Win Rates: Healthy=100% | Infected=0%
+[01:30:03]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:30:03]   Training INFECTED... (vs Model)
+[Phase 2][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 1.9 | FPS: 436
+[Phase 2][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 0.5 | FPS: 432
+[01:31:10] 
+──────────────────────────────────────────────────
+[01:31:10] RONDA 2/10
+[01:31:10] ──────────────────────────────────────────────────
+[01:31:10]   Evaluando balance actual...
+[01:31:15]   Win Rates: Healthy=100% | Infected=0%
+[01:31:15]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:31:15]   Training INFECTED... (vs Model)
+[Phase 2][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 0.9 | FPS: 433
+[Phase 2][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 1.0 | FPS: 434
+[01:32:21] 
+──────────────────────────────────────────────────
+[01:32:21] RONDA 3/10
+[01:32:21] ──────────────────────────────────────────────────
+[01:32:21]   Evaluando balance actual...
+[01:32:26]   Win Rates: Healthy=100% | Infected=0%
+[01:32:26]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:32:26]   Training INFECTED... (vs Model)
+[Phase 2][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 0.0 | FPS: 430
+[Phase 2][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: -0.0 | FPS: 431
+[01:33:34] 
+──────────────────────────────────────────────────
+[01:33:34] RONDA 4/10
+[01:33:34] ──────────────────────────────────────────────────
+[01:33:34]   Evaluando balance actual...
+[01:33:38]   Win Rates: Healthy=95% | Infected=5%
+[01:33:38]   Decisión: INFECTED más débil (5% vs 95%) → Entrenando SOLO Infected
+[01:33:38]   Training INFECTED... (vs Model)
+[Phase 2][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 2.6 | FPS: 433
+[Phase 2][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 2.8 | FPS: 434
+[01:34:45] 
+──────────────────────────────────────────────────
+[01:34:45] RONDA 5/10
+[01:34:45] ──────────────────────────────────────────────────
+[01:34:45]   Evaluando balance actual...
+[01:34:50]   Win Rates: Healthy=95% | Infected=5%
+[01:34:50]   Decisión: INFECTED más débil (5% vs 95%) → Entrenando SOLO Infected
+[01:34:50]   Training INFECTED... (vs Model)
+[Phase 2][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 4.3 | FPS: 431
+[Phase 2][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 5.5 | FPS: 433
+[01:35:57] 
+──────────────────────────────────────────────────
+[01:35:57] RONDA 6/10
+[01:35:57] ──────────────────────────────────────────────────
+[01:35:57]   Evaluando balance actual...
+[01:36:02]   Win Rates: Healthy=95% | Infected=5%
+[01:36:02]   Decisión: INFECTED más débil (5% vs 95%) → Entrenando SOLO Infected
+[01:36:02]   Training INFECTED... (vs Model)
+[Phase 2][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 5.3 | FPS: 432
+[Phase 2][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 8.1 | FPS: 428
+[01:37:09] 
+──────────────────────────────────────────────────
+[01:37:09] RONDA 7/10
+[01:37:09] ──────────────────────────────────────────────────
+[01:37:09]   Evaluando balance actual...
+[01:37:14]   Win Rates: Healthy=95% | Infected=5%
+[01:37:14]   Decisión: INFECTED más débil (5% vs 95%) → Entrenando SOLO Infected
+[01:37:14]   Training INFECTED... (vs Model)
+[Phase 2][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 7.5 | FPS: 431
+[Phase 2][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 8.5 | FPS: 429
+[01:38:21] 
+──────────────────────────────────────────────────
+[01:38:21] RONDA 8/10
+[01:38:21] ──────────────────────────────────────────────────
+[01:38:21]   Evaluando balance actual...
+[01:38:26]   Win Rates: Healthy=100% | Infected=0%
+[01:38:26]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:38:26]   Training INFECTED... (vs Model)
+[Phase 2][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 8.0 | FPS: 427
+[Phase 2][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 9.2 | FPS: 425
+[01:39:34] 
+──────────────────────────────────────────────────
+[01:39:34] RONDA 9/10
+[01:39:34] ──────────────────────────────────────────────────
+[01:39:34]   Evaluando balance actual...
+[01:39:39]   Win Rates: Healthy=95% | Infected=5%
+[01:39:39]   Decisión: INFECTED más débil (5% vs 95%) → Entrenando SOLO Infected
+[01:39:39]   Training INFECTED... (vs Model)
+[Phase 2][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 8.9 | FPS: 425
+[Phase 2][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 11.1 | FPS: 427
+[01:40:47] 
+──────────────────────────────────────────────────
+[01:40:47] RONDA 10/10
+[01:40:47] ──────────────────────────────────────────────────
+[01:40:47]   Evaluando balance actual...
+[01:40:52]   Win Rates: Healthy=90% | Infected=10%
+[01:40:52]   Decisión: INFECTED más débil (10% vs 90%) → Entrenando SOLO Infected
+[01:40:52]   Training INFECTED... (vs Model)
+[Phase 2][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 10.5 | FPS: 425
+[Phase 2][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 10.6 | FPS: 426
+[01:42:00] 
+--- Evaluación Final Phase 2 ---
+[01:42:07]   Healthy Win Rate: 93.3%
+[01:42:07]   Infected Win Rate: 6.7%
+[01:42:07]   Avg Steps: 187.4
+[01:42:07]   Tiempo: 12.2 minutos
+[01:42:07] ============================================================
+[01:42:07] FASE 3 (SPARSE REWARDS)
+[01:42:07]   Mapa: 6 agentes (4H vs 2I)
+[01:42:07]   Max steps: 300
+[01:42:07]   Total timesteps: 1,200,000
+[01:42:07]   Adaptive interval: 50,000
+[01:42:07] ============================================================
+[01:42:07] 
+Adaptive Self-Play: 12 rondas de 50,000 steps
+[01:42:07] 
+──────────────────────────────────────────────────
+[01:42:07] RONDA 1/12
+[01:42:07] ──────────────────────────────────────────────────
+[01:42:07]   Evaluando balance actual...
+[01:42:19]   Win Rates: Healthy=100% | Infected=0%
+[01:42:19]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:42:19]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 19.4 | FPS: 275
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 17.2 | FPS: 275
+[01:44:04] 
+──────────────────────────────────────────────────
+[01:44:04] RONDA 2/12
+[01:44:04] ──────────────────────────────────────────────────
+[01:44:04]   Evaluando balance actual...
+[01:44:17]   Win Rates: Healthy=100% | Infected=0%
+[01:44:17]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:44:17]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 16.3 | FPS: 274
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 17.4 | FPS: 274
+[01:46:02] 
+──────────────────────────────────────────────────
+[01:46:02] RONDA 3/12
+[01:46:02] ──────────────────────────────────────────────────
+[01:46:02]   Evaluando balance actual...
+[01:46:14]   Win Rates: Healthy=100% | Infected=0%
+[01:46:14]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:46:14]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 17.7 | FPS: 275
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 18.1 | FPS: 275
+[01:47:59] 
+──────────────────────────────────────────────────
+[01:47:59] RONDA 4/12
+[01:47:59] ──────────────────────────────────────────────────
+[01:47:59]   Evaluando balance actual...
+[01:48:11]   Win Rates: Healthy=100% | Infected=0%
+[01:48:11]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:48:11]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 17.2 | FPS: 273
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 17.0 | FPS: 275
+[01:49:56] 
+──────────────────────────────────────────────────
+[01:49:56] RONDA 5/12
+[01:49:56] ──────────────────────────────────────────────────
+[01:49:56]   Evaluando balance actual...
+[01:50:08]   Win Rates: Healthy=95% | Infected=5%
+[01:50:08]   Decisión: INFECTED más débil (5% vs 95%) → Entrenando SOLO Infected
+[01:50:08]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 17.4 | FPS: 276
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 17.7 | FPS: 276
+[01:51:53] 
+──────────────────────────────────────────────────
+[01:51:53] RONDA 6/12
+[01:51:53] ──────────────────────────────────────────────────
+[01:51:53]   Evaluando balance actual...
+[01:52:06]   Win Rates: Healthy=100% | Infected=0%
+[01:52:06]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:52:06]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 18.3 | FPS: 276
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 20.1 | FPS: 278
+[01:53:50] 
+──────────────────────────────────────────────────
+[01:53:50] RONDA 7/12
+[01:53:50] ──────────────────────────────────────────────────
+[01:53:50]   Evaluando balance actual...
+[01:54:02]   Win Rates: Healthy=100% | Infected=0%
+[01:54:02]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:54:02]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 18.6 | FPS: 277
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 18.0 | FPS: 277
+[01:55:46] 
+──────────────────────────────────────────────────
+[01:55:46] RONDA 8/12
+[01:55:46] ──────────────────────────────────────────────────
+[01:55:46]   Evaluando balance actual...
+[01:55:58]   Win Rates: Healthy=90% | Infected=10%
+[01:55:58]   Decisión: INFECTED más débil (10% vs 90%) → Entrenando SOLO Infected
+[01:55:58]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 17.9 | FPS: 276
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 17.6 | FPS: 278
+[01:57:42] 
+──────────────────────────────────────────────────
+[01:57:42] RONDA 9/12
+[01:57:42] ──────────────────────────────────────────────────
+[01:57:42]   Evaluando balance actual...
+[01:57:54]   Win Rates: Healthy=100% | Infected=0%
+[01:57:54]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[01:57:54]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 18.0 | FPS: 279
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 16.2 | FPS: 278
+[01:59:38] 
+──────────────────────────────────────────────────
+[01:59:38] RONDA 10/12
+[01:59:38] ──────────────────────────────────────────────────
+[01:59:38]   Evaluando balance actual...
+[01:59:50]   Win Rates: Healthy=95% | Infected=5%
+[01:59:50]   Decisión: INFECTED más débil (5% vs 95%) → Entrenando SOLO Infected
+[01:59:50]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 19.4 | FPS: 274
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 19.2 | FPS: 278
+[02:01:34] 
+──────────────────────────────────────────────────
+[02:01:34] RONDA 11/12
+[02:01:34] ──────────────────────────────────────────────────
+[02:01:34]   Evaluando balance actual...
+[02:01:47]   Win Rates: Healthy=100% | Infected=0%
+[02:01:47]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:01:47]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 18.0 | FPS: 278
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 18.7 | FPS: 278
+[02:03:30] 
+──────────────────────────────────────────────────
+[02:03:30] RONDA 12/12
+[02:03:30] ──────────────────────────────────────────────────
+[02:03:30]   Evaluando balance actual...
+[02:03:43]   Win Rates: Healthy=100% | Infected=0%
+[02:03:43]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:03:43]   Training INFECTED... (vs Model)
+[Phase 3][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 17.9 | FPS: 275
+[Phase 3][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 20.2 | FPS: 277
+[02:05:27] 
+--- Evaluación Final Phase 3 ---
+[02:05:46]   Healthy Win Rate: 96.7%
+[02:05:46]   Infected Win Rate: 3.3%
+[02:05:46]   Avg Steps: 291.6
+[02:05:46]   Tiempo: 23.6 minutos
+[02:05:46] ============================================================
+[02:05:46] FASE 4 (SPARSE REWARDS)
+[02:05:46]   Mapa: 10 agentes (8H vs 2I)
+[02:05:46]   Max steps: 400
+[02:05:46]   Total timesteps: 1,500,000
+[02:05:46]   Adaptive interval: 50,000
+[02:05:46] ============================================================
+[02:05:46] 
+Adaptive Self-Play: 15 rondas de 50,000 steps
+[02:05:46] 
+──────────────────────────────────────────────────
+[02:05:46] RONDA 1/15
+[02:05:46] ──────────────────────────────────────────────────
+[02:05:46]   Evaluando balance actual...
+[02:06:15]   Win Rates: Healthy=100% | Infected=0%
+[02:06:15]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:06:15]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 27.7 | FPS: 153
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 28.0 | FPS: 154
+[02:09:21] 
+──────────────────────────────────────────────────
+[02:09:21] RONDA 2/15
+[02:09:21] ──────────────────────────────────────────────────
+[02:09:21]   Evaluando balance actual...
+[02:09:51]   Win Rates: Healthy=100% | Infected=0%
+[02:09:51]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:09:51]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 30.2 | FPS: 158
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 28.8 | FPS: 155
+[02:12:55] 
+──────────────────────────────────────────────────
+[02:12:55] RONDA 3/15
+[02:12:55] ──────────────────────────────────────────────────
+[02:12:55]   Evaluando balance actual...
+[02:13:25]   Win Rates: Healthy=100% | Infected=0%
+[02:13:25]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:13:25]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 30.4 | FPS: 152
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 29.2 | FPS: 155
+[02:16:32] 
+──────────────────────────────────────────────────
+[02:16:32] RONDA 4/15
+[02:16:32] ──────────────────────────────────────────────────
+[02:16:32]   Evaluando balance actual...
+[02:17:02]   Win Rates: Healthy=100% | Infected=0%
+[02:17:02]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:17:02]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 31.8 | FPS: 155
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 31.1 | FPS: 155
+[02:20:07] 
+──────────────────────────────────────────────────
+[02:20:07] RONDA 5/15
+[02:20:07] ──────────────────────────────────────────────────
+[02:20:07]   Evaluando balance actual...
+[02:20:37]   Win Rates: Healthy=100% | Infected=0%
+[02:20:37]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:20:37]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 31.3 | FPS: 154
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 30.7 | FPS: 154
+[02:23:43] 
+──────────────────────────────────────────────────
+[02:23:43] RONDA 6/15
+[02:23:43] ──────────────────────────────────────────────────
+[02:23:43]   Evaluando balance actual...
+[02:24:13]   Win Rates: Healthy=100% | Infected=0%
+[02:24:13]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:24:13]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 30.7 | FPS: 155
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 29.4 | FPS: 155
+[02:27:18] 
+──────────────────────────────────────────────────
+[02:27:18] RONDA 7/15
+[02:27:18] ──────────────────────────────────────────────────
+[02:27:18]   Evaluando balance actual...
+[02:27:48]   Win Rates: Healthy=100% | Infected=0%
+[02:27:48]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:27:48]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 29.6 | FPS: 157
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 30.6 | FPS: 154
+[02:30:52] 
+──────────────────────────────────────────────────
+[02:30:52] RONDA 8/15
+[02:30:52] ──────────────────────────────────────────────────
+[02:30:52]   Evaluando balance actual...
+[02:31:22]   Win Rates: Healthy=100% | Infected=0%
+[02:31:22]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:31:22]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 31.5 | FPS: 154
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 30.3 | FPS: 156
+[02:34:28] 
+──────────────────────────────────────────────────
+[02:34:28] RONDA 9/15
+[02:34:28] ──────────────────────────────────────────────────
+[02:34:28]   Evaluando balance actual...
+[02:34:57]   Win Rates: Healthy=100% | Infected=0%
+[02:34:57]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:34:57]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 31.5 | FPS: 157
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 30.1 | FPS: 158
+[02:37:59] 
+──────────────────────────────────────────────────
+[02:37:59] RONDA 10/15
+[02:37:59] ──────────────────────────────────────────────────
+[02:37:59]   Evaluando balance actual...
+[02:38:29]   Win Rates: Healthy=100% | Infected=0%
+[02:38:29]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:38:29]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 30.6 | FPS: 155
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 30.3 | FPS: 157
+[02:41:32] 
+──────────────────────────────────────────────────
+[02:41:32] RONDA 11/15
+[02:41:32] ──────────────────────────────────────────────────
+[02:41:32]   Evaluando balance actual...
+[02:42:03]   Win Rates: Healthy=100% | Infected=0%
+[02:42:03]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:42:03]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 30.8 | FPS: 157
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 32.3 | FPS: 158
+[02:45:05] 
+──────────────────────────────────────────────────
+[02:45:05] RONDA 12/15
+[02:45:05] ──────────────────────────────────────────────────
+[02:45:05]   Evaluando balance actual...
+[02:45:35]   Win Rates: Healthy=100% | Infected=0%
+[02:45:35]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:45:35]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 33.3 | FPS: 157
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 32.4 | FPS: 158
+[02:48:37] 
+──────────────────────────────────────────────────
+[02:48:37] RONDA 13/15
+[02:48:37] ──────────────────────────────────────────────────
+[02:48:37]   Evaluando balance actual...
+[02:49:07]   Win Rates: Healthy=100% | Infected=0%
+[02:49:07]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:49:07]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 30.9 | FPS: 157
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 31.1 | FPS: 157
+[02:52:09] 
+──────────────────────────────────────────────────
+[02:52:09] RONDA 14/15
+[02:52:09] ──────────────────────────────────────────────────
+[02:52:09]   Evaluando balance actual...
+[02:52:39]   Win Rates: Healthy=100% | Infected=0%
+[02:52:39]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:52:39]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 28.4 | FPS: 156
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 27.4 | FPS: 155
+[02:55:43] 
+──────────────────────────────────────────────────
+[02:55:43] RONDA 15/15
+[02:55:43] ──────────────────────────────────────────────────
+[02:55:43]   Evaluando balance actual...
+[02:56:13]   Win Rates: Healthy=100% | Infected=0%
+[02:56:13]   Decisión: INFECTED más débil (0% vs 100%) → Entrenando SOLO Infected
+[02:56:13]   Training INFECTED... (vs Model)
+[Phase 4][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 32.6 | FPS: 156
+[Phase 4][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 30.3 | FPS: 155
+[02:59:17] 
+--- Evaluación Final Phase 4 ---
+[03:00:02]   Healthy Win Rate: 100.0%
+[03:00:02]   Infected Win Rate: 0.0%
+[03:00:02]   Avg Steps: 400.0
+[03:00:02]   Tiempo: 54.3 minutos
+[03:00:02] 
+============================================================
+[03:00:02] REFINAMIENTO ADAPTATIVO
+[03:00:02]   Ciclos: 10
+[03:00:02]   Timesteps por ciclo: 300,000
+[03:00:02]   Umbral: 60%
+[03:00:02] ============================================================
+[03:00:02] 
+──────────────────────────────────────────────────
+[03:00:02] CICLO 1/10
+[03:00:02] ──────────────────────────────────────────────────
+[03:00:02]   Evaluando...
+[03:00:41]   Healthy: 100.0%, Infected: 0.0%
+[03:00:41]   Entrenando: INFECTED (Infected más débil (0% vs 100%))
+[Phase 201][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 15.2 | FPS: 86
+[Phase 201][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 16.0 | FPS: 86
+[Phase 201][INFECTED] Step: 30,000 | Win Rate: 0% | Mean Reward: 18.1 | FPS: 85
+[Phase 201][INFECTED] Step: 40,000 | Win Rate: 0% | Mean Reward: 18.8 | FPS: 86
+[Phase 201][INFECTED] Step: 50,000 | Win Rate: 0% | Mean Reward: 15.0 | FPS: 85
+[Phase 201][INFECTED] Step: 60,000 | Win Rate: 0% | Mean Reward: 16.0 | FPS: 86
+[Phase 201][INFECTED] Step: 70,000 | Win Rate: 0% | Mean Reward: 17.6 | FPS: 85
+[03:15:44]   Tiempo: 15.7 min
+[03:15:44] 
+──────────────────────────────────────────────────
+[03:15:44] CICLO 2/10
+[03:15:44] ──────────────────────────────────────────────────
+[03:15:44]   Evaluando...
+[03:16:18]   Healthy: 90.0%, Infected: 10.0%
+[03:16:18]   Entrenando: INFECTED (Infected más débil (10% vs 90%))
+[Phase 202][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 17.1 | FPS: 86
+[Phase 202][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 16.8 | FPS: 85
+[Phase 202][INFECTED] Step: 30,000 | Win Rate: 0% | Mean Reward: 16.2 | FPS: 84
+[Phase 202][INFECTED] Step: 40,000 | Win Rate: 0% | Mean Reward: 17.8 | FPS: 86
+[Phase 202][INFECTED] Step: 50,000 | Win Rate: 0% | Mean Reward: 18.7 | FPS: 85
+[Phase 202][INFECTED] Step: 60,000 | Win Rate: 0% | Mean Reward: 18.3 | FPS: 86
+[Phase 202][INFECTED] Step: 70,000 | Win Rate: 0% | Mean Reward: 17.0 | FPS: 85
+[03:31:27]   Tiempo: 15.7 min
+[03:31:27] 
+──────────────────────────────────────────────────
+[03:31:27] CICLO 3/10
+[03:31:27] ──────────────────────────────────────────────────
+[03:31:27]   Evaluando...
+[03:31:56]   Healthy: 75.0%, Infected: 25.0%
+[03:31:56]   Entrenando: INFECTED (Infected más débil (25% vs 75%))
+[Phase 203][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 17.6 | FPS: 85
+[Phase 203][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 17.7 | FPS: 86
+[Phase 203][INFECTED] Step: 30,000 | Win Rate: 0% | Mean Reward: 16.4 | FPS: 85
+[Phase 203][INFECTED] Step: 40,000 | Win Rate: 0% | Mean Reward: 17.1 | FPS: 86
+[Phase 203][INFECTED] Step: 50,000 | Win Rate: 0% | Mean Reward: 17.4 | FPS: 84
+[Phase 203][INFECTED] Step: 60,000 | Win Rate: 0% | Mean Reward: 18.9 | FPS: 86
+[Phase 203][INFECTED] Step: 70,000 | Win Rate: 0% | Mean Reward: 18.1 | FPS: 85
+[03:47:04]   Tiempo: 15.6 min
+[03:47:04] 
+──────────────────────────────────────────────────
+[03:47:04] CICLO 4/10
+[03:47:04] ──────────────────────────────────────────────────
+[03:47:04]   Evaluando...
+[03:47:22]   Healthy: 40.0%, Infected: 60.0%
+[03:47:22]   Entrenando: HEALTHY (Healthy más débil (40% vs 60%))
+[Phase 204][HEALTHY] Step: 10,000 | Win Rate: 0% | Mean Reward: -9.7 | FPS: 78
+[Phase 204][HEALTHY] Step: 20,000 | Win Rate: 0% | Mean Reward: -9.5 | FPS: 78
+[Phase 204][HEALTHY] Step: 30,000 | Win Rate: 0% | Mean Reward: -9.7 | FPS: 76
+[Phase 204][HEALTHY] Step: 40,000 | Win Rate: 0% | Mean Reward: -9.7 | FPS: 79
+[Phase 204][HEALTHY] Step: 50,000 | Win Rate: 0% | Mean Reward: -9.9 | FPS: 77
+[Phase 204][HEALTHY] Step: 60,000 | Win Rate: 0% | Mean Reward: -9.8 | FPS: 77
+[Phase 204][HEALTHY] Step: 70,000 | Win Rate: 0% | Mean Reward: -9.4 | FPS: 77
+[04:04:03]   Tiempo: 17.0 min
+[04:04:03] 
+──────────────────────────────────────────────────
+[04:04:03] CICLO 5/10
+[04:04:03] ──────────────────────────────────────────────────
+[04:04:03]   Evaluando...
+[04:04:25]   Healthy: 50.0%, Infected: 50.0%
+[04:04:25]   Entrenando: INFECTED (Equilibrado (50% vs 50%) → alternando)
+[Phase 205][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 19.6 | FPS: 82
+[Phase 205][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 18.4 | FPS: 83
+[Phase 205][INFECTED] Step: 30,000 | Win Rate: 0% | Mean Reward: 18.3 | FPS: 82
+[Phase 205][INFECTED] Step: 40,000 | Win Rate: 0% | Mean Reward: 18.7 | FPS: 83
+[Phase 205][INFECTED] Step: 50,000 | Win Rate: 0% | Mean Reward: 21.9 | FPS: 81
+[Phase 205][INFECTED] Step: 60,000 | Win Rate: 0% | Mean Reward: 19.9 | FPS: 83
+[Phase 205][INFECTED] Step: 70,000 | Win Rate: 0% | Mean Reward: 18.0 | FPS: 82
+[04:20:05]   Tiempo: 16.0 min
+[04:20:05] 
+──────────────────────────────────────────────────
+[04:20:05] CICLO 6/10
+[04:20:05] ──────────────────────────────────────────────────
+[04:20:05]   Evaluando...
+[04:20:23]   Healthy: 40.0%, Infected: 60.0%
+[04:20:23]   Entrenando: HEALTHY (Healthy más débil (40% vs 60%))
+[Phase 206][HEALTHY] Step: 10,000 | Win Rate: 0% | Mean Reward: -9.5 | FPS: 76
+[Phase 206][HEALTHY] Step: 20,000 | Win Rate: 0% | Mean Reward: -9.5 | FPS: 76
+[Phase 206][HEALTHY] Step: 30,000 | Win Rate: 0% | Mean Reward: -9.6 | FPS: 75
+[Phase 206][HEALTHY] Step: 40,000 | Win Rate: 0% | Mean Reward: -9.4 | FPS: 76
+[Phase 206][HEALTHY] Step: 50,000 | Win Rate: 0% | Mean Reward: -9.8 | FPS: 75
+[Phase 206][HEALTHY] Step: 60,000 | Win Rate: 0% | Mean Reward: -9.9 | FPS: 75
+[Phase 206][HEALTHY] Step: 70,000 | Win Rate: 0% | Mean Reward: -9.5 | FPS: 74
+[04:37:30]   Tiempo: 17.4 min
+[04:37:30] 
+──────────────────────────────────────────────────
+[04:37:30] CICLO 7/10
+[04:37:30] ──────────────────────────────────────────────────
+[04:37:30]   Evaluando...
+[04:37:52]   Healthy: 55.0%, Infected: 45.0%
+[04:37:52]   Entrenando: INFECTED (Infected más débil (45% vs 55%))
+[Phase 207][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 14.8 | FPS: 84
+[Phase 207][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 13.7 | FPS: 84
+[Phase 207][INFECTED] Step: 30,000 | Win Rate: 0% | Mean Reward: 14.5 | FPS: 83
+[Phase 207][INFECTED] Step: 40,000 | Win Rate: 0% | Mean Reward: 14.4 | FPS: 84
+[Phase 207][INFECTED] Step: 50,000 | Win Rate: 0% | Mean Reward: 15.0 | FPS: 84
+[Phase 207][INFECTED] Step: 60,000 | Win Rate: 0% | Mean Reward: 14.7 | FPS: 84
+[Phase 207][INFECTED] Step: 70,000 | Win Rate: 0% | Mean Reward: 17.2 | FPS: 84
+[04:53:13]   Tiempo: 15.7 min
+[04:53:13] 
+──────────────────────────────────────────────────
+[04:53:13] CICLO 8/10
+[04:53:13] ──────────────────────────────────────────────────
+[04:53:13]   Evaluando...
+[04:53:40]   Healthy: 65.0%, Infected: 35.0%
+[04:53:40]   Entrenando: INFECTED (Infected más débil (35% vs 65%))
+[Phase 208][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 14.9 | FPS: 84
+[Phase 208][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 15.3 | FPS: 84
+[Phase 208][INFECTED] Step: 30,000 | Win Rate: 0% | Mean Reward: 14.9 | FPS: 83
+[Phase 208][INFECTED] Step: 40,000 | Win Rate: 0% | Mean Reward: 14.5 | FPS: 84
+[Phase 208][INFECTED] Step: 50,000 | Win Rate: 0% | Mean Reward: 14.6 | FPS: 83
+[Phase 208][INFECTED] Step: 60,000 | Win Rate: 0% | Mean Reward: 16.6 | FPS: 84
+[Phase 208][INFECTED] Step: 70,000 | Win Rate: 0% | Mean Reward: 14.9 | FPS: 83
+[05:09:02]   Tiempo: 15.8 min
+[05:09:02] 
+──────────────────────────────────────────────────
+[05:09:02] CICLO 9/10
+[05:09:02] ──────────────────────────────────────────────────
+[05:09:02]   Evaluando...
+[05:09:27]   Healthy: 60.0%, Infected: 40.0%
+[05:09:27]   Entrenando: INFECTED (Infected más débil (40% vs 60%))
+[Phase 209][INFECTED] Step: 10,000 | Win Rate: 0% | Mean Reward: 15.0 | FPS: 84
+[Phase 209][INFECTED] Step: 20,000 | Win Rate: 0% | Mean Reward: 15.9 | FPS: 84
+[Phase 209][INFECTED] Step: 30,000 | Win Rate: 0% | Mean Reward: 14.9 | FPS: 83
+[Phase 209][INFECTED] Step: 40,000 | Win Rate: 0% | Mean Reward: 14.1 | FPS: 84
+[Phase 209][INFECTED] Step: 50,000 | Win Rate: 0% | Mean Reward: 14.2 | FPS: 84
+[Phase 209][INFECTED] Step: 60,000 | Win Rate: 0% | Mean Reward: 15.6 | FPS: 84
+[Phase 209][INFECTED] Step: 70,000 | Win Rate: 0% | Mean Reward: 13.9 | FPS: 84
+[05:24:49]   Tiempo: 15.8 min
+[05:24:49] 
+──────────────────────────────────────────────────
+[05:24:49] CICLO 10/10
+[05:24:49] ──────────────────────────────────────────────────
+[05:24:49]   Evaluando...
+[05:25:10]   Healthy: 50.0%, Infected: 50.0%
+[05:25:10]   Entrenando: HEALTHY (Equilibrado (50% vs 50%) → alternando)
+[Phase 210][HEALTHY] Step: 10,000 | Win Rate: 0% | Mean Reward: -9.7 | FPS: 77
+[Phase 210][HEALTHY] Step: 20,000 | Win Rate: 0% | Mean Reward: -9.5 | FPS: 77
+[Phase 210][HEALTHY] Step: 30,000 | Win Rate: 0% | Mean Reward: -9.8 | FPS: 76
+[Phase 210][HEALTHY] Step: 40,000 | Win Rate: 0% | Mean Reward: -9.6 | FPS: 77
+[Phase 210][HEALTHY] Step: 50,000 | Win Rate: 0% | Mean Reward: -9.7 | FPS: 76
+[Phase 210][HEALTHY] Step: 60,000 | Win Rate: 0% | Mean Reward: -9.6 | FPS: 76
+[Phase 210][HEALTHY] Step: 70,000 | Win Rate: 0% | Mean Reward: -9.1 | FPS: 76
+[05:42:03]   Tiempo: 17.2 min
+[05:42:03] 
+──────────────────────────────────────────────────
+[05:42:03] EVALUACIÓN FINAL
+[05:42:34]   Healthy: 46.7%
+[05:42:34]   Infected: 53.3%
+[05:42:34] 
+============================================================
+[05:42:34] ENTRENAMIENTO COMPLETO
+[05:42:34]   Tiempo total: 4.34 horas
+[05:42:34]   Modelos: models/curriculum_v3
+[05:42:34] ============================================================
