@@ -93,13 +93,13 @@ class PhaseConfig:
         return get_reward_config_for_phase(self.phase_id)
 
 
-# Curriculum progresivo para deployment 8 healthy vs 2 infected
+# Curriculum progresivo con ratio 1:1 (equilibrado)
 # Rewards: DENSE → INTERMEDIATE → SPARSE
 CURRICULUM_PHASES: List[PhaseConfig] = [
     PhaseConfig(
         phase_id=1,
         map_data=MAP_LVL1,  # 20x20
-        num_healthy=1,      # 1v2 ventaja infected - aprende a cazar
+        num_healthy=2,      # 2v2 equilibrado
         num_infected=2,
         total_timesteps=800_000,
         max_steps=150,      # Episodios cortos = más iteraciones
@@ -108,8 +108,8 @@ CURRICULUM_PHASES: List[PhaseConfig] = [
     PhaseConfig(
         phase_id=2,
         map_data=MAP_LVL1,  # 20x20
-        num_healthy=2,      # 2v2 equilibrado
-        num_infected=2,
+        num_healthy=3,      # 3v3 equilibrado
+        num_infected=3,
         total_timesteps=1_000_000,
         max_steps=200,
         ping_pong_interval=50_000,
@@ -117,8 +117,8 @@ CURRICULUM_PHASES: List[PhaseConfig] = [
     PhaseConfig(
         phase_id=3,
         map_data=MAP_LVL2,  # 30x30
-        num_healthy=4,      # 4v2 transición
-        num_infected=2,
+        num_healthy=4,      # 4v4 equilibrado
+        num_infected=4,
         total_timesteps=1_200_000,
         max_steps=300,
         ping_pong_interval=50_000,
@@ -126,8 +126,8 @@ CURRICULUM_PHASES: List[PhaseConfig] = [
     PhaseConfig(
         phase_id=4,
         map_data=MAP_LVL3,  # 40x40
-        num_healthy=8,      # 8v2 target deployment
-        num_infected=2,
+        num_healthy=5,      # 5v5 equilibrado (target deployment)
+        num_infected=5,
         total_timesteps=1_500_000,
         max_steps=400,
         ping_pong_interval=50_000,

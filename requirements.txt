@@ -1,7 +1,18 @@
-# Core
-gymnasium
-stable-baselines3
-tensorboard
-numpy
-matplotlib
-pygame
+# Core dependencies with pinned versions for model compatibility
+# These versions match the environment used to train the included models
+
+# Deep Learning
+torch==2.9.1
+stable-baselines3==2.7.1
+
+# Environment
+gymnasium==1.2.3
+numpy==2.4.0
+
+# Visualization & Logging
+tensorboard>=2.15.0
+matplotlib>=3.7.0
+pygame>=2.5.0
+
+# Utilities
+cloudpickle==3.1.2

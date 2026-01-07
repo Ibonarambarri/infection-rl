@@ -37,12 +37,16 @@ from src.maps import MAP_LVL1, MAP_LVL2, MAP_LVL3
 from src.envs import InfectionEnv, EnvConfig, CellType
 from src.agents import Direction
 
+# Configuracion de infectados (debe coincidir con train.py)
+INFECTED_SPEED = 1  # Misma velocidad que healthy
+INFECTED_GLOBAL_VISION = True  # Los infectados ven a todos los healthy
 
-# Configuracion por nivel
+
+# Configuracion por nivel (ratio 1:1 equilibrado)
 LEVEL_CONFIG = {
-    1: {"map_data": MAP_LVL1, "num_healthy": 4, "num_infected": 1, "name": "Level 1 (20x20)"},
-    2: {"map_data": MAP_LVL2, "num_healthy": 6, "num_infected": 2, "name": "Level 2 (30x30)"},
-    3: {"map_data": MAP_LVL3, "num_healthy": 8, "num_infected": 2, "name": "Level 3 (40x40)"},
+    1: {"map_data": MAP_LVL1, "num_healthy": 3, "num_infected": 3, "name": "Level 1 (20x20) - 3v3"},
+    2: {"map_data": MAP_LVL2, "num_healthy": 4, "num_infected": 4, "name": "Level 2 (30x30) - 4v4"},
+    3: {"map_data": MAP_LVL3, "num_healthy": 5, "num_infected": 5, "name": "Level 3 (40x40) - 5v5"},
 }
 
 
@@ -58,13 +62,15 @@ class GamePlayer:
         self.level = level
         config = LEVEL_CONFIG[level]
 
-        # Configurar entorno
+        # Configurar entorno (mismos parametros que train.py)
         env_config = EnvConfig(
             map_data=config["map_data"],
             num_agents=config["num_healthy"] + config["num_infected"],
             initial_infected=config["num_infected"],
             max_steps=500,
             seed=seed,
+            infected_speed=INFECTED_SPEED,
+            infected_global_vision=INFECTED_GLOBAL_VISION,
         )
         self.env = InfectionEnv(env_config)
         self.env.reset()
@@ -126,25 +132,44 @@ class GamePlayer:
         }
 
     def _get_observation_for_agent(self, agent):
-        """Obtiene observacion aplanada para un agente."""
-        obs_dict = self.env._get_observation(agent)
+        """
+        Obtiene observacion en formato MultiInputPolicy para un agente.
+
+        IMPORTANTE: Replica EXACTAMENTE el procesamiento de DictObservationWrapper
+        para garantizar consistencia entre entrenamiento y evaluacion.
+        """
+        raw_obs = self.env._get_observation(agent)
+
+        # Imagen: normalizar a [0, 1] como float32
+        image = raw_obs["image"].astype(np.float32) / 255.0
+
+        # Construir vector de features
         parts = []
 
-        image = obs_dict["image"].astype(np.float32) / 255.0
-        parts.append(image.flatten())
-
-        direction = np.zeros(4, dtype=np.float32)
-        direction[obs_dict["direction"]] = 1.0
+        # Direction como encoding circular [cos, sin] (2 elementos)
+        angle = raw_obs["direction"] * (np.pi / 2)  # 0, pi/2, pi, 3pi/2
+        direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
         parts.append(direction)
 
+        # State one-hot (2 elementos: 0=healthy, 1=infected)
         state = np.zeros(2, dtype=np.float32)
-        state[obs_dict["state"]] = 1.0
+        state[raw_obs["state"]] = 1.0
         parts.append(state)
 
-        parts.append(obs_dict["position"])
-        parts.append(obs_dict["nearby_agents"].flatten())
+        # Position (ya viene normalizada del environment: x/width, y/height)
+        position = raw_obs["position"].astype(np.float32)
+        parts.append(position)
 
-        return np.concatenate(parts)
+        # Nearby agents (5 features por agente)
+        nearby = raw_obs["nearby_agents"].flatten().astype(np.float32)
+        parts.append(nearby)
+
+        vector = np.concatenate(parts)
+
+        return {
+            "image": image,
+            "vector": vector,
+        }
 
     def _init_pygame(self):
         """Inicializa pygame."""
