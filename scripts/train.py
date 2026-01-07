@@ -94,6 +94,7 @@ class PhaseConfig:
 
 
 # Curriculum progresivo con ratio 1:1 (equilibrado)
+# Intervalos largos: 4 rondas por fase para aprendizaje más estable
 # Rewards: DENSE → INTERMEDIATE → SPARSE
 CURRICULUM_PHASES: List[PhaseConfig] = [
     PhaseConfig(
@@ -102,8 +103,8 @@ CURRICULUM_PHASES: List[PhaseConfig] = [
         num_healthy=2,      # 2v2 equilibrado
         num_infected=2,
         total_timesteps=800_000,
-        max_steps=150,      # Episodios cortos = más iteraciones
-        ping_pong_interval=50_000,
+        max_steps=150,
+        ping_pong_interval=200_000,  # 4 rondas
     ),
     PhaseConfig(
         phase_id=2,
@@ -112,7 +113,7 @@ CURRICULUM_PHASES: List[PhaseConfig] = [
         num_infected=3,
         total_timesteps=1_000_000,
         max_steps=200,
-        ping_pong_interval=50_000,
+        ping_pong_interval=250_000,  # 4 rondas
     ),
     PhaseConfig(
         phase_id=3,
@@ -121,7 +122,7 @@ CURRICULUM_PHASES: List[PhaseConfig] = [
         num_infected=4,
         total_timesteps=1_200_000,
         max_steps=300,
-        ping_pong_interval=50_000,
+        ping_pong_interval=300_000,  # 4 rondas
     ),
     PhaseConfig(
         phase_id=4,
@@ -130,7 +131,7 @@ CURRICULUM_PHASES: List[PhaseConfig] = [
         num_infected=5,
         total_timesteps=1_500_000,
         max_steps=400,
-        ping_pong_interval=50_000,
+        ping_pong_interval=375_000,  # 4 rondas
     ),
 ]
 
@@ -214,7 +215,7 @@ class SimpleLoggingCallback(BaseCallback):
 
     def _print_metrics(self):
         """Imprime métricas de forma simple y limpia."""
-        # Calcular win rate
+        # Calcular win rate (solo para TensorBoard)
         win_rate = (self.wins / self.total_episodes * 100) if self.total_episodes > 0 else 0
 
         # Calcular mean reward (últimos 100 episodios)
@@ -233,17 +234,16 @@ class SimpleLoggingCallback(BaseCallback):
         self.last_log_time = current_time
         self.last_log_steps = self.n_calls
 
-        # Imprimir línea limpia
+        # Imprimir línea limpia (sin Win Rate)
         print(
             f"[Phase {self.phase_id}][{self.role}] "
             f"Step: {self.n_calls:,} | "
-            f"Win Rate: {win_rate:.0f}% | "
             f"Mean Reward: {mean_reward:.1f} | "
             f"FPS: {fps}",
             flush=True
         )
 
-        # Registrar en TensorBoard
+        # Registrar en TensorBoard (incluye Win Rate)
         if self.logger is not None:
             role_prefix = f"train/{self.role}"
             self.logger.record(f"{role_prefix}_win_rate", win_rate / 100)
