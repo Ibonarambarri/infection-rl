@@ -23,9 +23,14 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
-# Models (too large for git)
-models/
-*.zip
+# Models (ignore checkpoints and intermediate phases)
+models/*/checkpoints/
+models/*/phase*.zip
+
+# Allow final models and training logs
+!models/*/healthy_final.zip
+!models/*/infected_final.zip
+!models/*/training_log.json
 
 # OS
 .DS_Store

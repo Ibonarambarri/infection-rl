@@ -1,0 +1,143 @@
+[
+  {
+    "phase_id": 1,
+    "reward_preset": "dense",
+    "evaluation": {
+      "healthy_wins": 29,
+      "infected_wins": 1,
+      "total_steps": 8710,
+      "healthy_win_rate": 0.9666666666666667,
+      "infected_win_rate": 0.03333333333333333,
+      "avg_steps": 290.3333333333333
+    },
+    "time": 1207.4538156986237
+  },
+  {
+    "phase_id": 2,
+    "reward_preset": "intermediate",
+    "evaluation": {
+      "healthy_wins": 30,
+      "infected_wins": 0,
+      "total_steps": 12000,
+      "healthy_win_rate": 1.0,
+      "infected_win_rate": 0.0,
+      "avg_steps": 400.0
+    },
+    "time": 2491.7025113105774
+  },
+  {
+    "phase_id": 3,
+    "reward_preset": "sparse",
+    "evaluation": {
+      "healthy_wins": 30,
+      "infected_wins": 0,
+      "total_steps": 15000,
+      "healthy_win_rate": 1.0,
+      "infected_win_rate": 0.0,
+      "avg_steps": 500.0
+    },
+    "time": 4474.030584096909
+  },
+  {
+    "adaptive_refinement": [
+      {
+        "cycle": 1,
+        "pre_eval": {
+          "healthy_wr": 1.0,
+          "infected_wr": 0.0
+        },
+        "trained": "infected",
+        "time": 444.5367889404297
+      },
+      {
+        "cycle": 2,
+        "pre_eval": {
+          "healthy_wr": 1.0,
+          "infected_wr": 0.0
+        },
+        "trained": "infected",
+        "time": 447.12083196640015
+      },
+      {
+        "cycle": 3,
+        "pre_eval": {
+          "healthy_wr": 1.0,
+          "infected_wr": 0.0
+        },
+        "trained": "infected",
+        "time": 446.5240321159363
+      },
+      {
+        "cycle": 4,
+        "pre_eval": {
+          "healthy_wr": 1.0,
+          "infected_wr": 0.0
+        },
+        "trained": "infected",
+        "time": 448.03716588020325
+      },
+      {
+        "cycle": 5,
+        "pre_eval": {
+          "healthy_wr": 1.0,
+          "infected_wr": 0.0
+        },
+        "trained": "infected",
+        "time": 449.81356501579285
+      },
+      {
+        "cycle": 6,
+        "pre_eval": {
+          "healthy_wr": 1.0,
+          "infected_wr": 0.0
+        },
+        "trained": "infected",
+        "time": 448.6543641090393
+      },
+      {
+        "cycle": 7,
+        "pre_eval": {
+          "healthy_wr": 1.0,
+          "infected_wr": 0.0
+        },
+        "trained": "infected",
+        "time": 445.9640350341797
+      },
+      {
+        "cycle": 8,
+        "pre_eval": {
+          "healthy_wr": 1.0,
+          "infected_wr": 0.0
+        },
+        "trained": "infected",
+        "time": 448.3477349281311
+      },
+      {
+        "cycle": 9,
+        "pre_eval": {
+          "healthy_wr": 1.0,
+          "infected_wr": 0.0
+        },
+        "trained": "infected",
+        "time": 449.25836181640625
+      },
+      {
+        "cycle": 10,
+        "pre_eval": {
+          "healthy_wr": 1.0,
+          "infected_wr": 0.0
+        },
+        "trained": "infected",
+        "time": 444.4755301475525
+      }
+    ],
+    "final_evaluation": {
+      "healthy_wins": 30,
+      "infected_wins": 0,
+      "total_steps": 15000,
+      "healthy_win_rate": 1.0,
+      "infected_win_rate": 0.0,
+      "avg_steps": 500.0
+    }
+  }
+]
